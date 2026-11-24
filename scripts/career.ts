@@ -3,17 +3,19 @@ import { MatchEngine } from '../src/engine/MatchEngine.ts';
 import { autoLineup, generateWorld, matchdayTeam, playerOverall, repairLineup, teamOverall } from '../src/data/generators.ts';
 import { computeTable, newSeason, positionOf } from '../src/league/schedule.ts';
 import { processRound, startNextSeason, type LeagueWorld } from '../src/league/condition.ts';
-import { applyRoundFinances, expectedPosition, formatMoney, initialFinances, seasonEndFinances, wageBill } from '../src/club/economy.ts';
+import { applyRoundFinances, egyptIncomeScale, expectedPosition, formatMoney, initialFinances, seasonEndFinances, wageBill } from '../src/club/economy.ts';
 import { seasonLifecycle, youthIntake } from '../src/club/development.ts';
 import { affordability, bidsFor, buildMarket, evaluateOffer, evaluateWage, freeAgentPool, sellPlayer, signPlayer } from '../src/club/transfers.ts';
 import { resolveDilemma, rollDilemma } from '../src/club/dilemmas.ts';
 import type { MatchSummary } from '../src/types/match.ts';
 import { applyTraining, declineFactor, defaultTraining } from '../src/club/training.ts';
 import { Rng } from '../src/engine/rng.ts';
+import { generateEgyptWorld } from '../src/data/egypt/world.ts';
 let training = defaultTraining();
 
 const OFF = { goal: false, redCard: false, injury: false, staminaBelow60: false, halfTime: false, subWindow65: false };
-const g = generateWorld(4242);
+const EGY = process.env.EGY;
+const g = EGY ? generateEgyptWorld(4242, EGY) : generateWorld(4242);
 let world: LeagueWorld = { user: g.user, opponents: g.opponents, season: newSeason(1, [g.user, ...g.opponents], 7) };
 const names = new Set([g.user, ...g.opponents].flatMap(t => t.players.map(p => p.name)));
 let finances = initialFinances(world.user, [world.user, ...world.opponents]);
@@ -60,7 +62,7 @@ for (let s = 1; s <= 4; s++) {
     world = processRound(world, sums).world;
     training = applyTraining(world.user, training, new Rng(5000 + s * 100 + world.season.round), s, world.season.round).training;
     world.user.lineup = autoLineup(world.user);
-    finances = applyRoundFinances(finances, world.user, { season: s, round, home, scored: home ? sm.home.score : sm.away.score, conceded: home ? sm.away.score : sm.home.score, userOvr: teamOverall(world.user), oppOvr: teamOverall(opp) });
+    finances = applyRoundFinances(finances, world.user, { season: s, round, home, scored: home ? sm.home.score : sm.away.score, conceded: home ? sm.away.score : sm.home.score, userOvr: teamOverall(world.user), oppOvr: teamOverall(opp), rounds: world.season.rounds, incomeScale: EGY ? egyptIncomeScale(world.user.level) : 1 });
     const d = rollDilemma({ user: world.user, finances, academy, season: world.season });
     if (d) { dilemmas++; const r = resolveDilemma({ user: world.user, finances, academy, season: world.season }, d, (seed % 2) as 0 | 1); world.user = r.world.user; finances = r.world.finances; academy = r.world.academy; }
   }

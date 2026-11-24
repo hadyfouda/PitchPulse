@@ -11,6 +11,7 @@
     "sim": "node --experimental-strip-types scripts/simulate.ts",
     "season": "node --experimental-strip-types scripts/season.ts",
     "training": "node --experimental-strip-types --no-warnings scripts/training.ts",
+    "egypt": "node --experimental-strip-types --no-warnings scripts/egypt.ts",
     "career": "node --experimental-strip-types scripts/career.ts"
   },
   "dependencies": {

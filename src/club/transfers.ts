@@ -11,7 +11,8 @@ import { generatePlayer, playerOverall, playerValue, repairLineup, slotScore, wa
 import { addLedger, formatMoney, wageBill } from './economy.ts';
 import { replenishSquad } from './development.ts';
 
-export const MAX_SQUAD = 25;
+/** Real Egyptian squads carry 30–45 players. */
+export const MAX_SQUAD = 46;
 const MIN_SQUAD = 16;
 const MIN_BY_POSITION: Record<Position, number> = { GK: 2, DEF: 5, MID: 5, FWD: 3 };
 

@@ -61,24 +61,34 @@ export interface MatchMoneyInput {
   conceded: number;
   userOvr: number;
   oppOvr: number;
+  /** Rounds in the season — board reactions per match are scaled so a 38-round season moves as much as a 22-round one. */
+  rounds?: number;
+  /** Matchday income multiplier (Egyptian league: by club stature, see egyptIncomeScale). */
+  incomeScale?: number;
 }
+
+/** Egyptian clubs earn far less per match than the game's default, and big clubs earn much more than small ones. */
+export const egyptIncomeScale = (clubLevel: number): number => Math.max(0.3, Math.min(0.9, 0.35 + (clubLevel - 61) * 0.035));
 
 /** One league round: broadcast fee, bonus, gate, a week of wages, board reaction to the result. */
 export function applyRoundFinances(prev: ClubFinances, user: Team, m: MatchMoneyInput): ClubFinances {
   const f: ClubFinances = structuredClone(prev);
   const base = { season: m.season, round: m.round };
   const won = m.scored > m.conceded, drew = m.scored === m.conceded;
-  addLedger(f, { ...base, kind: 'MATCH', label: 'Broadcast fee', amount: MATCH_FEE });
-  if (m.home) addLedger(f, { ...base, kind: 'MATCH', label: 'Home gate receipts', amount: HOME_GATE });
-  if (won) addLedger(f, { ...base, kind: 'MATCH', label: 'Win bonus', amount: WIN_BONUS });
-  else if (drew) addLedger(f, { ...base, kind: 'MATCH', label: 'Draw bonus', amount: DRAW_BONUS });
+  const k = m.incomeScale ?? 1;
+  const money = (v: number): number => Math.round((v * k) / 1000) * 1000;
+  addLedger(f, { ...base, kind: 'MATCH', label: 'Broadcast fee', amount: money(MATCH_FEE) });
+  if (m.home) addLedger(f, { ...base, kind: 'MATCH', label: 'Home gate receipts', amount: money(HOME_GATE) });
+  if (won) addLedger(f, { ...base, kind: 'MATCH', label: 'Win bonus', amount: money(WIN_BONUS) });
+  else if (drew) addLedger(f, { ...base, kind: 'MATCH', label: 'Draw bonus', amount: money(DRAW_BONUS) });
   addLedger(f, { ...base, kind: 'WAGES', label: 'Weekly wages', amount: -wageBill(user) });
 
   const expectedPts = clamp(1.37 + (m.userOvr - m.oppOvr) * 0.08 + (m.home ? 0.15 : -0.15), 0.3, 2.5);
   const pts = won ? 3 : drew ? 1 : 0;
-  let delta = (pts - expectedPts) * 0.9;
-  if (f.balance < 0) delta -= 2;
-  if (wageBill(user) > f.wageBudget) delta -= 1;
+  const scale = 22 / (m.rounds ?? 22);
+  let delta = (pts - expectedPts) * 0.9 * scale;
+  if (f.balance < 0) delta -= 2 * scale;
+  if (wageBill(user) > f.wageBudget) delta -= 1 * scale;
   f.boardConfidence = clamp(Math.round((f.boardConfidence + delta) * 10) / 10, 0, 100);
   return f;
 }

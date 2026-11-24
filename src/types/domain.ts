@@ -44,6 +44,8 @@ export interface Player {
   wage: number;
   /** Overall rating ceiling (1–100). */
   potential: number;
+  /** ISO-3 country code for real players (generated players leave it out). */
+  nationality?: string;
 }
 
 export interface Injury {

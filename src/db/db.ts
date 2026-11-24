@@ -20,6 +20,8 @@ export interface CareerRecord {
   dilemma: Dilemma | null;
   /** Club news feed: transfers, academy, dilemma outcomes, summer changes. */
   news: ClubNews[];
+  /** Which league the career plays in (older careers: the fictional one). */
+  league?: 'EGY' | 'CLASSIC';
   /** Training ground (added after Phase 4; older careers get the default on load). */
   training: TrainingState;
 }

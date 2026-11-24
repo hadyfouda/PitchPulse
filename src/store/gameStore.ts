@@ -4,19 +4,20 @@ import type { MatchSetup, MatchState, MatchSummary } from '../types/match.ts';
 import type { Fixture, SeasonArchive } from '../types/league.ts';
 import type { ClubNews } from '../types/club.ts';
 import { db, type CareerRecord, type SettingsRecord } from '../db/db.ts';
-import { autoLineup, generateWorld, matchdayTeam, repairLineup, teamOverall } from '../data/generators.ts';
+import { autoLineup, generateWorld, matchdayTeam, repairLineup, setWageScale, teamOverall } from '../data/generators.ts';
 import { randomSeed } from '../engine/rng.ts';
 import { DEFAULT_AUTOPAUSE } from '../engine/constants.ts';
 import { computeTable, newSeason, positionOf } from '../league/schedule.ts';
 import { archiveSeason, describeRound, processRound, startNextSeason } from '../league/condition.ts';
 import { notify } from '../lib/alerts.ts';
+import { EGYPT_CLUBS, EGYPT_WAGE_FACTOR, generateEgyptWorld } from '../data/egypt/world.ts';
 import { Rng } from '../engine/rng.ts';
 import { FACILITY_COST, MAX_FACILITIES, MAX_INDIVIDUAL, applyTraining, declineFactor, defaultTraining } from '../club/training.ts';
 import type { IndividualFocus, TrainingState } from '../types/club.ts';
 import { migrateCareer, needsMigration } from '../league/migrate.ts';
 import { simulateFixtures } from '../league/leagueBridge.ts';
 import type { LeagueSimJob } from '../league/leagueProtocol.ts';
-import { addLedger, applyRoundFinances, expectedPosition, formatMoney, initialFinances, seasonEndFinances } from '../club/economy.ts';
+import { addLedger, applyRoundFinances, egyptIncomeScale, expectedPosition, formatMoney, initialFinances, seasonEndFinances } from '../club/economy.ts';
 import { seasonLifecycle, youthIntake } from '../club/development.ts';
 import { MAX_SQUAD, bidsFor, freeAgentPool, sellPlayer, signPlayer, type Bid, type MarketEntry } from '../club/transfers.ts';
 import { resolveDilemma, rollDilemma, describeDilemma } from '../club/dilemmas.ts';
@@ -44,7 +45,8 @@ interface GameState {
   roundBusy: boolean;
   roundError: string | null;
   init: () => Promise<void>;
-  newCareer: (clubIndex: number) => Promise<void>;
+  /** league 'EGY': clubIndex indexes EGYPT_CLUBS; 'CLASSIC': the fictional CLUB_SEEDS league. */
+  newCareer: (clubIndex: number, league?: 'EGY' | 'CLASSIC') => Promise<void>;
   updateUserTeam: (fn: (t: Team) => Team) => void;
   setSettings: (patch: Partial<Omit<SettingsRecord, 'id'>>) => void;
   setScreen: (s: Screen) => void;
@@ -140,7 +142,8 @@ export const useGame = create<GameState>((set, get) => {
           season: c.season.number, round, home,
           scored: home ? userResult.home.score : userResult.away.score,
           conceded: home ? userResult.away.score : userResult.home.score,
-          userOvr: teamOverall(c.user), oppOvr: teamOverall(opp)
+          userOvr: teamOverall(c.user), oppOvr: teamOverall(opp), rounds: c.season.rounds,
+          incomeScale: c.league === 'EGY' ? egyptIncomeScale(c.user.level) : 1
         });
       }
       // The week's training between this round and the next
@@ -214,6 +217,7 @@ export const useGame = create<GameState>((set, get) => {
         const migrate = needsMigration(rawCareer);
         career = migrate ? migrateCareer(rawCareer) : rawCareer;
         if (migrate) await db.career.put(career);
+        setWageScale(career.league === 'EGY' ? EGYPT_WAGE_FACTOR : 1);
       }
       const resumable = live && live.snapshot.status !== 'FINISHED' ? live.snapshot : null;
       set({
@@ -226,13 +230,16 @@ export const useGame = create<GameState>((set, get) => {
       });
     },
 
-    newCareer: async (clubIndex) => {
+    newCareer: async (clubIndex, league = 'EGY') => {
       const seed = randomSeed();
-      const world = generateWorld(seed, clubIndex);
+      setWageScale(league === 'EGY' ? EGYPT_WAGE_FACTOR : 1);
+      const world = league === 'EGY'
+        ? generateEgyptWorld(seed, EGYPT_CLUBS[clubIndex]?.id ?? 'ahly')
+        : generateWorld(seed, clubIndex);
       const teams = [world.user, ...world.opponents];
       const names = new Set(teams.flatMap(t => t.players.map(p => p.name)));
       const career: CareerRecord = {
-        id: 'career', seed, createdAt: Date.now(), user: world.user, opponents: world.opponents,
+        id: 'career', seed, createdAt: Date.now(), league, user: world.user, opponents: world.opponents,
         season: newSeason(1, teams, seed ^ 0x5eed), pendingFixtureId: null,
         finances: initialFinances(world.user, teams),
         academy: { prospects: youthIntake(1, seed ^ 0xacad, names), lastIntakeSeason: 1 },

@@ -170,6 +170,20 @@ Balance from `npm run sim` (per team per match): ~10 shots, ~4 on target, ~1.4 x
   potential, finances, academy and market are created for them).
 - Balance check: `npm run career` runs a four-season economy simulation in Node.
 
+## Egyptian Premier League
+
+- New careers default to the **Egyptian Premier League 2026/27**: the 20 real clubs and their real squads
+  (650+ players — names, ages, shirt numbers, positions, nationalities and current injuries, transcribed from FotMob
+  squad lists on 24 Nov 2026; `src/data/egypt/`). Format: double round-robin, 38 rounds. The fictional league is still
+  available from the new-career screen.
+- **Ratings are estimates** — no public attribute data exists for the league. Each club has a level from its standing
+  and stature (Al Ahly / Pyramids 74 → El Gouna 61); players are generated around it with age, squad-role hints and a
+  short list of well-known players, then every squad is shifted so its best XI sits at level + 4. Edit `CLUB_LEVEL` /
+  `STAR_BONUS` in `src/data/egypt/world.ts` to change them.
+- Economy for the league: wages ×0.45 (bigger squads, lower pay), matchday income scaled by club stature, board
+  reactions per match scaled to the 38-round season, squad limit 46. `npm run egypt` simulates a season;
+  `EGY=ahly npm run career` runs the four-season economy check for one club.
+
 ## Training ground
 
 - **Training tab** (hub): weekly sessions run automatically between rounds.

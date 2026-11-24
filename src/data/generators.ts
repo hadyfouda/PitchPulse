@@ -78,12 +78,16 @@ export function generatePlayer(rng: Rng, position: Position, level: number, shir
   return p;
 }
 
+let wageScale = 1;
+/** Wage level of the current league (the Egyptian league pays less and carries bigger squads). Set on career load. */
+export function setWageScale(scale: number): void { wageScale = scale; }
+
 /** Weekly wage (€) a player of this level expects. */
 export function wageFor(p: Player): number {
   const ovr = playerOverall(p);
   const base = Math.max(1500, Math.pow(Math.max(0, ovr - 42), 2) * 34);
   const ageAdj = p.age <= 19 ? 0.35 : p.age <= 21 ? 0.6 : p.age >= 32 ? 0.85 : 1;
-  return Math.round((base * ageAdj) / 500) * 500;
+  return Math.max(1000, Math.round((base * ageAdj * wageScale) / 500) * 500);
 }
 
 /** Transfer value (€) from level, age and headroom. */
