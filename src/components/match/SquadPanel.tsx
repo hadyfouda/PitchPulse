@@ -7,6 +7,9 @@ import { engine } from '../../store/engineBridge.ts';
 import { useMatch } from '../../store/matchStore.ts';
 import { ratingClass, staminaClass } from '../../lib/format.ts';
 import { useState } from 'react';
+import type { Player } from '../../types/domain.ts';
+import { useGame } from '../../store/gameStore.ts';
+import { playerOverall, slotScore } from '../../data/generators.ts';
 import { Panel, Segmented } from '../ui/controls.tsx';
 import { PitchFormation, lastName, type PitchToken } from '../ui/PitchFormation.tsx';
 
@@ -27,6 +30,15 @@ export function SquadPanel({ v }: { v: EngineTick }) {
   const gone = team.players.filter(p => p.status === 'SUBBED_OFF' || p.status === 'SENT_OFF');
   const byId = new Map(team.players.map(p => [p.id, p]));
   const outKind = subOutId ? byId.get(subOutId)?.slotKind ?? null : null;
+  // Squad attributes live in the career, the match view only carries ids
+  const roster = useGame(s => s.career?.user.players);
+  const squad = new Map<string, Player>((roster ?? []).map(p => [p.id, p]));
+  const ovrOf = (id: string): number | null => { const p = squad.get(id); return p ? playerOverall(p) : null; };
+  /** Ability in a given position (overall × position fit), ignoring tiredness. */
+  const atKind = (id: string, kind: NonNullable<typeof outKind>): number | null => {
+    const p = squad.get(id); return p ? Math.round(slotScore({ ...p, fitness: 100 }, kind)) : null;
+  };
+  const outAt = subOutId && outKind ? atKind(subOutId, outKind) : null;
 
   const [view, setView] = useState<'PITCH' | 'LIST'>('PITCH');
   const selectedPlayer = subOutId ? byId.get(subOutId) : undefined;
@@ -67,11 +79,11 @@ export function SquadPanel({ v }: { v: EngineTick }) {
           <div className="mt-2 flex flex-wrap justify-center gap-x-3 text-[10px] text-zinc-500"><span>Ring = stamina</span><span>Corner = match rating</span></div>
           {selectedPlayer ? (
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
-              <span className="min-w-0 flex-1 truncate text-amber-100"><b>{selectedPlayer.name}</b> · stamina {selectedPlayer.stamina}%</span>
+              <span className="min-w-0 flex-1 truncate text-amber-100"><b>{selectedPlayer.name}</b>{ovrOf(selectedPlayer.id) !== null && <> · OVR {ovrOf(selectedPlayer.id)}</>} · stamina {selectedPlayer.stamina}%</span>
               {selectedPlayer.slotKind && ROLES_FOR_KIND[selectedPlayer.slotKind].length > 1 && (
                 <select value={selectedRole ?? selectedPlayer.role} aria-label="Role"
                   onChange={e => engine.queue({ kind: 'ROLE', playerId: selectedPlayer.id, role: e.target.value as RoleId })}
-                  className={`flex-none rounded border bg-zinc-900 px-1 py-0.5 text-[11px] ${selectedRole ? 'border-amber-500/60 text-amber-200' : 'border-zinc-700 text-zinc-300'}`}>
+                  className={`w-[6.5rem] flex-none rounded border bg-zinc-900 px-1 py-0.5 text-[11px] ${selectedRole ? 'border-amber-500/60 text-amber-200' : 'border-zinc-700 text-zinc-300'}`}>
                   {ROLES_FOR_KIND[selectedPlayer.slotKind].map(r => <option key={r} value={r}>{ROLE_INFO[r].short} · {ROLE_INFO[r].label}</option>)}
                 </select>
               )}
@@ -92,7 +104,7 @@ export function SquadPanel({ v }: { v: EngineTick }) {
 
       <div className="mb-1.5 mt-3 flex items-center justify-between">
         <span className="panel-title">Bench</span>
-        {subOutId && <span className="text-[11px] text-amber-300">Pick who comes on for {byId.get(subOutId)?.name.split(' ').slice(-1)[0]}</span>}
+        {subOutId && <span className="min-w-0 truncate pl-2 text-right text-[11px] text-amber-300">Pick who comes on for {byId.get(subOutId)?.name.split(' ').slice(-1)[0]}{outAt !== null && outKind ? ` (${outAt} at ${outKind})` : ''}</span>}
       </div>
       <ul className="space-y-0.5">
         {bench.map(p => {
@@ -102,8 +114,9 @@ export function SquadPanel({ v }: { v: EngineTick }) {
               <button onClick={() => pickIn(p)} disabled={!usable}
                 className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] transition ${usable ? 'bg-emerald-500/5 ring-1 ring-emerald-500/30 hover:bg-emerald-500/15' : 'opacity-70'} ${pendingIn.has(p.id) ? 'opacity-40' : ''}`}>
                 <span className="tabular w-5 text-right font-mono text-[11px] text-zinc-500">{p.shirt}</span>
-                <span className="flex-1 truncate text-zinc-300">{p.name}</span>
+                <span className="min-w-0 flex-1 truncate text-zinc-300">{p.name}</span>
                 {outKind ? <FitBadge position={p.position} kind={outKind} /> : <span className="text-[10px] text-zinc-500">{p.position}</span>}
+                <PowerBadge ovr={ovrOf(p.id)} at={outKind ? atKind(p.id, outKind) : null} vs={outAt} kind={outKind} />
               </button>
             </li>
           );
@@ -187,6 +200,24 @@ function FitBadge({ position, kind, hideOk = false }: { position: PlayerView['po
     <span className={`flex-none rounded px-1 text-[10px] font-semibold ${severe ? 'bg-rose-500/15 text-rose-300' : 'bg-amber-500/15 text-amber-300'}`}
       title={`Out of position: ${position} playing ${kind} — about ${Math.round(fit * 100)}% effectiveness`}>
       ⚠ {position}→{kind} {Math.round(fit * 100)}%
+    </span>
+  );
+}
+
+/**
+ * The bench player's strength: his overall, and once you've picked who goes off, his ability in that position
+ * compared with the player he'd replace (▲ stronger / ▼ weaker).
+ */
+function PowerBadge({ ovr, at, vs, kind }: { ovr: number | null; at: number | null; vs: number | null; kind: SlotKind | null }) {
+  if (ovr === null) return null;
+  if (at === null || vs === null || !kind) {
+    return <span className="tabular w-9 flex-none rounded bg-zinc-800 px-1 text-center text-[11px] font-bold text-zinc-200" title="Overall rating">{ovr}</span>;
+  }
+  const d = at - vs;
+  const cls = d > 0 ? 'bg-emerald-500/15 text-emerald-300' : d < 0 ? 'bg-rose-500/15 text-rose-300' : 'bg-zinc-800 text-zinc-300';
+  return (
+    <span className={`tabular flex-none rounded px-1 text-[11px] font-bold ${cls}`} title={`${at} at ${kind} (overall ${ovr}) vs ${vs} for the player going off`}>
+      {at} {d > 0 ? `▲${d}` : d < 0 ? `▼${-d}` : '='}
     </span>
   );
 }

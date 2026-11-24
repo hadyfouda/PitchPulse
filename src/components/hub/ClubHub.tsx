@@ -98,7 +98,7 @@ export function ClubHub() {
       <DilemmaCard />
 
       <div className="grid gap-3 lg:grid-cols-[minmax(330px,390px)_1fr_minmax(290px,330px)]">
-        <div className={mobileSection(section === 'SQUAD')}><LineupEditor /></div>
+        <div className={`min-w-0 ${mobileSection(section === 'SQUAD')}`}><LineupEditor /></div>
 
         <div className={`min-w-0 space-y-3 ${mobileSection(section === 'HUB')}`}>
           <Segmented value={tab} onChange={setTab} options={[

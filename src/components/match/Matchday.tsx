@@ -71,7 +71,7 @@ export function Matchday() {
         </div>
       )}
       <div className="grid gap-3 lg:grid-cols-[minmax(270px,320px)_1fr_minmax(280px,330px)]">
-        <div className={`lg:order-1 ${mobileSection(section === 'SQUAD')}`}><SquadPanel v={v} /></div>
+        <div className={`min-w-0 lg:order-1 ${mobileSection(section === 'SQUAD')}`}><SquadPanel v={v} /></div>
         <div className={`min-w-0 space-y-3 lg:order-2 ${mobileSection(section === 'LIVE')}`}>
           <TopBar v={v} />
           <PauseBanner v={v} />
@@ -88,7 +88,7 @@ export function Matchday() {
             </button>
           </div>
         </div>
-        <div className={`lg:order-3 ${mobileSection(section === 'TOUCHLINE')}`}><TouchlinePanel v={v} /></div>
+        <div className={`min-w-0 lg:order-3 ${mobileSection(section === 'TOUCHLINE')}`}><TouchlinePanel v={v} /></div>
       </div>
       <MobileNav value={section} onChange={setSection} items={[
         { value: 'LIVE', label: 'Live', icon: NavIcons.live },
