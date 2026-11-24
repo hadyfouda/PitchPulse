@@ -7,6 +7,7 @@ import type { UICommand, WorkerMessage } from '../types/protocol.ts';
 import type { ShoutType } from '../types/tactics.ts';
 import { db } from '../db/db.ts';
 import { notify, playChime } from '../lib/alerts.ts';
+import { backgroundMode } from '../lib/background.ts';
 import { PAUSE_LABEL } from '../lib/labels.ts';
 import { useGame } from './gameStore.ts';
 import { useMatch } from './matchStore.ts';
@@ -30,6 +31,7 @@ function handle(msg: WorkerMessage): void {
   switch (msg.channel) {
     case 'ENGINE_TICK':
       m.setView(msg.payload);
+      backgroundMode.update(msg.payload);
       if (msg.payload.status === 'RUNNING' && m.alert) m.setAlert(null);
       return;
     case 'MATCH_EVENT':
@@ -39,7 +41,11 @@ function handle(msg: WorkerMessage): void {
       m.setAlert(msg.payload);
       const settings = useGame.getState().settings;
       if (settings.sound) playChime();
-      if (settings.notifications) notify(`PitchPulse · ${PAUSE_LABEL[msg.payload.reason]}`, msg.payload.message);
+      // Goal and half-time messages carry the score already; the others get the (current) score appended
+      const v = m.view;
+      const withScore = v && msg.payload.reason !== 'GOAL' && msg.payload.reason !== 'HALF_TIME'
+        ? `${msg.payload.message} · ${v.home.shortName} ${v.home.score}–${v.away.score} ${v.away.shortName}` : msg.payload.message;
+      notify(settings, 'match', `⏸ Paused · ${PAUSE_LABEL[msg.payload.reason]}`, withScore, 'pause');
       return;
     }
     case 'SNAPSHOT':
@@ -52,7 +58,8 @@ function handle(msg: WorkerMessage): void {
       const g = useGame.getState();
       void g.recordResult(msg.payload);
       if (g.settings.sound) playChime();
-      if (g.settings.notifications) notify('PitchPulse · Full-time', `${msg.payload.home.shortName} ${msg.payload.home.score}–${msg.payload.away.score} ${msg.payload.away.shortName}`);
+      backgroundMode.stop();
+      notify(g.settings, 'match', `Full-time · ${msg.payload.home.shortName} ${msg.payload.home.score}–${msg.payload.away.score} ${msg.payload.away.shortName}`, 'The match is over — open PitchPulse for the analysis.', 'pause');
       g.setScreen('fulltime');
       return;
     }
@@ -62,16 +69,23 @@ function handle(msg: WorkerMessage): void {
   }
 }
 
+function startBackground(): void {
+  if (!useGame.getState().settings.backgroundMode) return;
+  backgroundMode.start({ play: () => engine.resume(), pause: () => engine.pause() });
+}
+
 export const engine = {
   startMatch(setup: MatchSetup): void {
     useMatch.getState().reset();
     send({ type: 'INIT', setup });
     send({ type: 'START' });
+    startBackground();
     useGame.getState().setScreen('match');
   },
   restore(snapshot: MatchState): void {
     useMatch.getState().reset(snapshot.events);
     send({ type: 'RESTORE', snapshot });
+    startBackground();
     useGame.getState().setScreen('match');
   },
   pause: (): void => send({ type: 'PAUSE' }),
@@ -82,6 +96,7 @@ export const engine = {
   shout: (shout: ShoutType): void => send({ type: 'SHOUT', shout }),
   setAutoPause: (triggers: AutoPauseTriggers): void => send({ type: 'SET_AUTOPAUSE', triggers }),
   abandon: (): void => {
+    backgroundMode.stop();
     send({ type: 'DISPOSE' });
     useMatch.getState().reset();
     void useGame.getState().clearResumable();

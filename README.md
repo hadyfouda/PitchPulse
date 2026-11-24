@@ -30,6 +30,13 @@ Club tab to back it up or move it between devices. On phones the three desktop c
 (Club / Squad / Tactics in the hub, Live / Squad / Touchline during a match). The Squad screens show the XI on a pitch in
 formation shape: tap a player to edit him or his role, tap another position to swap, or a bench player to bring him in.
 
+**Notifications (Tactics tab → Alerts):** turn on *Notifications* to get a system notification for every auto-pause
+(goal, red card, injury, tiring player, half-time, sub window), full-time, and club news (simulated results, injuries and
+bans, off-pitch decisions, season end). Tapping one brings the app back. On iPhone this only works for the Home-Screen
+app (iOS 16.4+). Phones freeze web apps that are in the background, so *Keep match running in background* (on by
+default on phones) loops an inaudible track while a match is live; that keeps the engine and its alerts going and shows
+the score with ▶/⏸ on the lock screen. It stops at full-time.
+
 Deploying: the `gh-pages` branch holds the contents of `dist/` (`npm run build`), served by GitHub Pages.
 
 ## Stack

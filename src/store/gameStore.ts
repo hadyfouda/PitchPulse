@@ -8,7 +8,8 @@ import { autoLineup, generateWorld, matchdayTeam, repairLineup, teamOverall } fr
 import { randomSeed } from '../engine/rng.ts';
 import { DEFAULT_AUTOPAUSE } from '../engine/constants.ts';
 import { computeTable, newSeason, positionOf } from '../league/schedule.ts';
-import { archiveSeason, processRound, startNextSeason } from '../league/condition.ts';
+import { archiveSeason, describeRound, processRound, startNextSeason } from '../league/condition.ts';
+import { notify } from '../lib/alerts.ts';
 import { migrateCareer, needsMigration } from '../league/migrate.ts';
 import { simulateFixtures } from '../league/leagueBridge.ts';
 import type { LeagueSimJob } from '../league/leagueProtocol.ts';
@@ -22,6 +23,8 @@ export type Screen = 'home' | 'match' | 'fulltime';
 
 const DEFAULT_SETTINGS: SettingsRecord = {
   id: 'settings', autoPause: { ...DEFAULT_AUTOPAUSE }, notifications: false, sound: true, defaultSpeed: 'BG15',
+  notifyMatch: true, notifyClub: true, notifyWhenOpen: false,
+  backgroundMode: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true,
   pitchMode: 'FULL', pitchLabels: 'NUMBER', pitchCollapsed: false
 };
 const NEWS_CAP = 40;
@@ -71,6 +74,24 @@ export const useGame = create<GameState>((set, get) => {
   };
 
   /** Simulate every outstanding fixture of the current round (plus apply `userSummary` if given). */
+  /** System notifications for everything a round produced (the live full-time whistle notifies on its own). */
+  const notifyRound = (next: CareerRecord, prev: CareerRecord, result: MatchSummary | null, simulated: boolean, extra: string[]): void => {
+    const prefs = get().settings;
+    const report = next.season.lastReport;
+    const lines: string[] = [];
+    if (report) lines.push(`League position: ${describeRound(report)}`, ...report.news);
+    if (simulated && result) {
+      notify(prefs, 'club', `Result · ${result.home.shortName} ${result.home.score}–${result.away.score} ${result.away.shortName}`, lines.join('\n') || 'Round complete', 'round');
+    } else if (report && report.news.length) {
+      notify(prefs, 'club', `Squad news · round ${report.round}`, report.news.join('\n'), 'squad');
+    }
+    if (next.season.finished && extra.length) notify(prefs, 'club', `Season ${next.season.number} complete`, extra[0] ?? '', 'season');
+    if (next.dilemma && next.dilemma !== prev.dilemma) {
+      const d = describeDilemma(next.dilemma);
+      notify(prefs, 'club', `Off the pitch · ${d.title}`, d.text, 'dilemma');
+    }
+  };
+
   const completeRound = async (userSummary: MatchSummary | null, simulateUser: boolean): Promise<MatchSummary | null> => {
     const c = get().career;
     if (!c || c.season.finished) return null;
@@ -137,6 +158,7 @@ export const useGame = create<GameState>((set, get) => {
         set({ archive: [saved, ...get().archive.filter(m => m.id !== saved.id)].slice(0, 30) });
       }
       await persistCareer(next);
+      notifyRound(next, c, userResult, simulateUser, extraNews);
       return userResult;
     } catch (err) {
       set({ roundError: err instanceof Error ? err.message : String(err) });

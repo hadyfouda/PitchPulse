@@ -33,3 +33,12 @@ self.addEventListener('fetch', e => {
     return res;
   })));
 });
+
+// Tapping a notification brings the open app to the front (or opens it)
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const open = list.find(c => 'focus' in c);
+    return open ? open.focus() : self.clients.openWindow('./');
+  }));
+});

@@ -1,4 +1,9 @@
-/** Browser notifications + a soft two-note chime for auto-pause events. */
+/**
+ * Notifications + a soft two-note chime.
+ *
+ * Notifications go through the service worker (`registration.showNotification`): it is the only API Android Chrome
+ * and installed iPhone web apps accept, and it lets a tap on the notification bring the app back to the front.
+ */
 
 let audioCtx: AudioContext | null = null;
 
@@ -30,6 +35,23 @@ export function notificationsSupported(): boolean {
   return typeof Notification !== 'undefined';
 }
 
+/** iPhone/iPad only allow web notifications for apps added to the Home Screen. */
+export function isIOS(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+export function isStandalone(): boolean {
+  return window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+export function notificationHint(): string {
+  if (!notificationsSupported()) {
+    return isIOS() && !isStandalone() ? 'On iPhone: add PitchPulse to your Home Screen first' : 'Not supported in this browser';
+  }
+  if (Notification.permission === 'denied') return 'Blocked — allow notifications for this site in your phone/browser settings';
+  return 'Match pauses, full-time and club news';
+}
+
 export async function requestNotificationPermission(): Promise<boolean> {
   if (!notificationsSupported()) return false;
   if (Notification.permission === 'granted') return true;
@@ -37,13 +59,40 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return (await Notification.requestPermission()) === 'granted';
 }
 
-/** Only notifies while the tab is in the background — in the foreground the banner is enough. */
-export function notify(title: string, body: string): void {
-  if (!notificationsSupported() || Notification.permission !== 'granted' || !document.hidden) return;
-  try {
-    const n = new Notification(title, { body, tag: 'pitchpulse', icon: './favicon.svg', silent: true });
-    n.onclick = () => { window.focus(); n.close(); };
-  } catch {
-    /* some mobile browsers only allow notifications from a service worker */
+export type AlertCategory = 'match' | 'club';
+
+export interface AlertPrefs {
+  notifications: boolean;
+  notifyMatch: boolean;
+  notifyClub: boolean;
+  notifyWhenOpen: boolean;
+}
+
+/**
+ * Show a system notification. By default only while the app is in the background (in the foreground the in-app
+ * banner already says it); `notifyWhenOpen` sends them always.
+ */
+export function notify(prefs: AlertPrefs, category: AlertCategory, title: string, body: string, tag: string = category): void {
+  if (!prefs.notifications || !notificationsSupported() || Notification.permission !== 'granted') return;
+  if (category === 'match' && !prefs.notifyMatch) return;
+  if (category === 'club' && !prefs.notifyClub) return;
+  if (!document.hidden && !prefs.notifyWhenOpen) return;
+
+  const options: NotificationOptions & { renotify?: boolean; vibrate?: number[] } = {
+    body, tag: `pitchpulse-${tag}`, renotify: true, icon: './icons/icon-192.png', badge: './icons/icon-192.png',
+    vibrate: [120, 60, 120], data: { url: './' }
+  };
+  const fallback = (): void => {
+    try {
+      const n = new Notification(title, options);
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch {
+      /* some mobile browsers only allow notifications from a service worker */
+    }
+  };
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then(reg => reg.showNotification(title, options)).catch(fallback);
+  } else {
+    fallback();
   }
 }

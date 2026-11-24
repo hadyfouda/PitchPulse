@@ -26,6 +26,13 @@ export interface SettingsRecord {
   id: 'settings';
   autoPause: AutoPauseTriggers;
   notifications: boolean;
+  /** Which notifications to send (Phase 4+; older records get defaults on load). */
+  notifyMatch: boolean;
+  notifyClub: boolean;
+  /** Also notify while the app is open and in front. */
+  notifyWhenOpen: boolean;
+  /** Keep a live match running when the phone app is in the background (quiet audio + lock-screen scoreboard). */
+  backgroundMode: boolean;
   sound: boolean;
   defaultSpeed: SpeedMode;
   /** Radar view: every phase of play, or only key moments. */
