@@ -19,7 +19,7 @@ npm run season     # headless two-season league run: schedule, table, fatigue, i
 
 ## Install on your phone
 
-Live build: **https://hadyfouda.github.io/pitchpulse/**
+Live build: **https://hadyfouda.github.io/PitchPulse/**
 
 - **Android (Chrome):** open the link → menu ⋮ → *Install app* / *Add to Home screen*.
 - **iPhone (Safari):** open the link → Share → *Add to Home Screen*.
