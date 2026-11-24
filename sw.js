@@ -3,8 +3,8 @@
  * list of emitted files, so the whole app — including the match and league workers — is available offline after the
  * first visit. Pages are network-first (updates arrive when online); everything else is cache-first.
  */
-const BUILD = 'mwuoy9mx';
-const PRECACHE = ["./","./assets/index-BlbNeV5u.js","./assets/index-CYkPS9dr.css","./assets/leagueSim.worker-CY1ayOba.js","./assets/matchEngine.worker-CFthWNd1.js","./favicon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
+const BUILD = 'mwuqjv0l';
+const PRECACHE = ["./","./assets/index-CYkPS9dr.css","./assets/index-D1jiaXsO.js","./assets/leagueSim.worker-CY1ayOba.js","./assets/matchEngine.worker-CFthWNd1.js","./favicon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
 const CACHE = `pitchpulse-${BUILD}`;
 
 self.addEventListener('install', e => {
@@ -32,4 +32,13 @@ self.addEventListener('fetch', e => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
     return res;
   })));
+});
+
+// Tapping a notification brings the open app to the front (or opens it)
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const open = list.find(c => 'focus' in c);
+    return open ? open.focus() : self.clients.openWindow('./');
+  }));
 });
