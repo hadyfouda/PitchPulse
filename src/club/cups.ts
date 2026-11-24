@@ -216,10 +216,17 @@ export function createCups(season: number, rounds: number, leagueTeams: Team[], 
     });
   }
   const out = e0 ? [sup, cup, lc] : [cup, lc];
-  if (continental) {
-    const strength = new Map([...leagueTeams, ...continental.foreign].map(t => [t.id, teamOverall(t)]));
-    for (const id of ['CAF_CL', 'CAF_CC'] as const) {
-      const comp = base(id);
+  if (continental) out.push(...createContinental(season, rounds, leagueTeams, continental, rng));
+  return out;
+}
+
+/** The two CAF competitions for one season, drawn up to the second qualifying round. */
+export function createContinental(season: number, rounds: number, leagueTeams: Team[], continental: ContinentalEntry, seedOrRng: number | Rng): CupState[] {
+  const rng = typeof seedOrRng === 'number' ? new Rng(seedOrRng) : seedOrRng;
+  const out: CupState[] = [];
+  const strength = new Map([...leagueTeams, ...continental.foreign].map(t => [t.id, teamOverall(t)]));
+  for (const id of ['CAF_CL', 'CAF_CC'] as const) {
+      const comp: CupState = { id, name: CUP_NAMES[id], season, stages: stagesFor(id, rounds), ties: [], scorers: {}, winnerId: null, runnerUpId: null };
       const foreign = continental.foreign.filter(t => t.id.startsWith(id === 'CAF_CL' ? 'cafcl_' : 'cafcc_')).map(t => t.id);
       const entrants = [...(id === 'CAF_CL' ? continental.cl : continental.cc), ...foreign];
       comp.seeds = [...entrants].sort((a, b) => (strength.get(b) ?? 0) - (strength.get(a) ?? 0));
@@ -228,7 +235,6 @@ export function createCups(season: number, rounds: number, leagueTeams: Team[], 
       const top = shuffle(comp.seeds.slice(0, half), rng), bottom = shuffle(comp.seeds.slice(half, half * 2), rng);
       top.forEach((s, i) => comp.ties.push(tie(comp, comp.stages[0]!, bottom[i]!, s, i + 1)));
       out.push(comp);
-    }
   }
   return out;
 }

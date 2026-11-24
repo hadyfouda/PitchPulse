@@ -34,7 +34,7 @@ export function CupsTab() {
   const entered = userTies.length > 0;
   const status = cup.winnerId === uid ? '🏆 Winners'
     : cup.winnerId ? `Won by ${name(cup.winnerId)}`
-    : !entered ? 'Not taking part this season'
+    : !entered ? (cup.id === 'CAF_CL' ? 'Not taking part: the league top two qualify' : cup.id === 'CAF_CC' ? 'Not taking part: the Egypt Cup winner and the next league finisher qualify' : 'Not taking part this season')
     : lost ? `Knocked out (${stageName(lost.stageKey)})`
     : 'Still in it';
   const prize = CUP_PRIZES[cup.id];
@@ -46,6 +46,11 @@ export function CupsTab() {
   return (
     <div className="space-y-3">
       <Segmented value={cup.id} onChange={setCupId} options={cups.cups.map(c => ({ value: c.id, label: CUP_SHORT[c.id] }))} />
+      {!cups.cups.some(c => c.id === 'CAF_CL') && career.league === 'EGY' && (
+        <p className="rounded-lg border border-zinc-800 px-3 py-2 text-[12px] text-zinc-400">
+          🌍 The CAF Champions League and Confederation Cup start next season: league top two to the Champions League, Egypt Cup winner and the next league finisher to the Confederation Cup.
+        </p>
+      )}
 
       <Panel title={`${cup.name} · Season ${cup.season}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">

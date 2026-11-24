@@ -10,7 +10,7 @@ import { DEFAULT_AUTOPAUSE } from '../engine/constants.ts';
 import { computeTable, newSeason, positionOf } from '../league/schedule.ts';
 import { archiveSeason, describeRound, processRound, startNextSeason } from '../league/condition.ts';
 import { notify } from '../lib/alerts.ts';
-import { CUP_PRIZES, CUP_SHORT, applyCupCondition, continentalEntrants, createCups, dueSlot, emptyCups, foreignTeams, guestTeams, recordCupResults, superCupEntrants, tieAggregate, tieLabel, tiesAtSlot } from '../club/cups.ts';
+import { CUP_PRIZES, CUP_SHORT, applyCupCondition, continentalEntrants, createContinental, createCups, dueSlot, emptyCups, foreignTeams, guestTeams, recordCupResults, superCupEntrants, tieAggregate, tieLabel, tiesAtSlot } from '../club/cups.ts';
 import type { CupTie } from '../types/cups.ts';
 import { EGYPT_CLUBS, EGYPT_WAGE_FACTOR, generateEgyptWorld } from '../data/egypt/world.ts';
 import { Rng } from '../engine/rng.ts';
@@ -352,6 +352,24 @@ export const useGame = create<GameState>((set, get) => {
         // Egyptian careers started before the cups existed: the cups begin next season
         if (career.league === 'EGY' && !career.cups) {
           career = { ...career, cups: emptyCups(career.season.number, guestTeams(career.seed ^ 0x9e57)) };
+          await db.career.put(career);
+        }
+        // Saves from before the African competitions: join this season if the group stage hasn't started yet,
+        // otherwise they're drawn at the start of next season.
+        if (career.league === 'EGY' && career.cups && !career.cups.foreign && !career.season.finished
+          && career.cups.season === career.season.number && career.season.round <= 11) {
+          const prev = seasons.find(x => x.id === career!.season.number - 1);
+          const caf = career.season.number === 1 || !prev ? EGY_CAF_1 : continentalEntrants(prev.table, undefined);
+          const foreign = foreignTeams(career.seed ^ 0xcaf);
+          const comps = createContinental(career.season.number, career.season.rounds, [career.user, ...career.opponents], { ...caf, foreign }, career.seed ^ 0xca1);
+          const mine = caf.cl.includes(career.user.id) ? 'CAF Champions League' : caf.cc.includes(career.user.id) ? 'CAF Confederation Cup' : null;
+          career = {
+            ...career,
+            cups: { ...career.cups, foreign, cups: [...career.cups.cups, ...comps] },
+            news: addNews(career, mine
+              ? `The African draws are in: ${career.user.name} play in the ${mine} this season.`
+              : 'The CAF Champions League and Confederation Cup have been drawn.')
+          };
           await db.career.put(career);
         }
       }
