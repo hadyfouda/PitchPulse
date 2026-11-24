@@ -10,7 +10,7 @@ import { DEFAULT_AUTOPAUSE } from '../engine/constants.ts';
 import { computeTable, newSeason, positionOf } from '../league/schedule.ts';
 import { archiveSeason, describeRound, processRound, startNextSeason } from '../league/condition.ts';
 import { notify } from '../lib/alerts.ts';
-import { CUP_PRIZES, CUP_SHORT, applyCupCondition, createCups, dueSlot, emptyCups, guestTeams, recordCupResults, superCupEntrants, tieLabel, tiesAtSlot } from '../club/cups.ts';
+import { CUP_PRIZES, CUP_SHORT, applyCupCondition, continentalEntrants, createCups, dueSlot, emptyCups, foreignTeams, guestTeams, recordCupResults, superCupEntrants, tieAggregate, tieLabel, tiesAtSlot } from '../club/cups.ts';
 import type { CupTie } from '../types/cups.ts';
 import { EGYPT_CLUBS, EGYPT_WAGE_FACTOR, generateEgyptWorld } from '../data/egypt/world.ts';
 import { Rng } from '../engine/rng.ts';
@@ -77,8 +77,10 @@ interface GameState {
 
 const allTeams = (c: CareerRecord): Team[] => [c.user, ...c.opponents];
 /** League clubs plus the cup-only guests. */
-const everyTeam = (c: CareerRecord): Team[] => [c.user, ...c.opponents, ...(c.cups?.guests ?? [])];
+const everyTeam = (c: CareerRecord): Team[] => [c.user, ...c.opponents, ...(c.cups?.guests ?? []), ...(c.cups?.foreign ?? [])];
 const EGY_SUPER_CUP_1 = ['pyramids', 'ahly', 'zamalek', 'ceramica'].map(id => `egy_${id}`);
+/** 2025/26 continental places: league champion and runner-up (CL), cup winner and third place (Confederation Cup). */
+const EGY_CAF_1 = { cl: ['ahly', 'pyramids'].map(id => `egy_${id}`), cc: ['zamalek', 'masry'].map(id => `egy_${id}`) };
 const addNews = (c: CareerRecord, ...texts: string[]): ClubNews[] =>
   [...texts.map(text => ({ season: c.season.number, round: Math.max(1, c.season.round - 1), text })), ...c.news].slice(0, NEWS_CAP);
 
@@ -213,7 +215,7 @@ export const useGame = create<GameState>((set, get) => {
         .map(t => ({
           fixtureId: t.id, matchId: `${t.id}_${Date.now().toString(36)}`, seed: randomSeed(),
           home: matchdayTeam(teams.get(t.homeId)!, true), away: matchdayTeam(teams.get(t.awayId)!, true),
-          knockout: t.knockout, competition: tieLabel(c.cups!.cups, t)
+          knockout: t.knockout, competition: tieLabel(c.cups!.cups, t), aggregate: tieAggregate(c.cups!.cups, t)
         }));
       const summaries = await simulateFixtures(jobs);
       let userResult: MatchSummary | null = userSummary;
@@ -226,7 +228,8 @@ export const useGame = create<GameState>((set, get) => {
 
       const cups = recordCupResults(c.cups.cups, summaries, new Rng(randomSeed()));
       const user = structuredClone(c.user), opponents = structuredClone(c.opponents), guests = structuredClone(c.cups.guests);
-      const news = applyCupCondition([user, ...opponents, ...guests], ties, summaries);
+      const foreign = c.cups.foreign ? structuredClone(c.cups.foreign) : undefined;
+      const news = applyCupCondition([user, ...opponents, ...guests, ...(foreign ?? [])], ties, summaries);
       const finances = structuredClone(c.finances);
       const winners = [...c.cups.winners], honours = [...c.cups.honours];
       const nameOf = (id: string | null): string => (id ? teams.get(id)?.name ?? '?' : '?');
@@ -241,15 +244,24 @@ export const useGame = create<GameState>((set, get) => {
           const oppName = nameOf(userTie.homeId === c.user.id ? userTie.awayId : userTie.homeId);
           const prize = CUP_PRIZES[userTie.cup];
           const won = done.result.winnerId === c.user.id;
-          if (!userTie.knockout) {
+          const isFinal = cupState.stages[cupState.stages.length - 1]?.key === userTie.stageKey;
+          const roundName = stage?.round ?? stage?.label ?? '';
+          if (userTie.leg === 1) {
+            // First legs decide nothing on their own
+          } else if (!userTie.knockout) {
             const own = userTie.homeId === c.user.id ? done.result.home : done.result.away;
             const opp = userTie.homeId === c.user.id ? done.result.away : done.result.home;
             if (own > opp && prize.groupWin) addLedger(finances, { ...ledger, kind: 'MATCH', label: `${CUP_SHORT[userTie.cup]} group win`, amount: prize.groupWin });
-          } else if (won && stage?.key !== 'F') {
-            addLedger(finances, { ...ledger, kind: 'MATCH', label: `${CUP_SHORT[userTie.cup]} prize · ${stage?.label}`, amount: prize.tieWin });
-            news.push(`${CUP_SHORT[userTie.cup]}: through after beating ${oppName}${done.result.pens ? ' on penalties' : done.result.et ? ' after extra time' : ''}.`);
-          } else if (!won && stage?.key !== 'F') {
-            news.push(`${CUP_SHORT[userTie.cup]}: knocked out by ${oppName} in the ${stage?.label.toLowerCase()}${done.result.pens ? ' on penalties' : ''}.`);
+          } else if (won && !isFinal) {
+            addLedger(finances, { ...ledger, kind: 'MATCH', label: `${CUP_SHORT[userTie.cup]} prize · ${roundName}`, amount: prize.tieWin });
+            const agg = done.result.agg ? ` (${Math.max(done.result.agg.home, done.result.agg.away)}–${Math.min(done.result.agg.home, done.result.agg.away)} on aggregate)` : '';
+            news.push(`${CUP_SHORT[userTie.cup]}: through after beating ${oppName}${agg}${done.result.pens ? ' on penalties' : done.result.et ? ' after extra time' : ''}.`);
+          } else if (!won && !isFinal) {
+            news.push(`${CUP_SHORT[userTie.cup]}: knocked out by ${oppName} in the ${roundName.toLowerCase()}${done.result.pens ? ' on penalties' : ''}.`);
+            if (userTie.cup === 'CAF_CL' && userTie.stageKey === 'R22') {
+              finances.boardConfidence = Math.max(0, finances.boardConfidence - 6);
+              news.push('The board is unhappy to miss the Champions League group stage.');
+            }
           }
         }
       }
@@ -262,7 +274,7 @@ export const useGame = create<GameState>((set, get) => {
         if (cup.winnerId === c.user.id) {
           honours.unshift({ season: cup.season, cup: cup.id, name: cup.name });
           addLedger(finances, { ...ledger, kind: 'MATCH', label: `${cup.name} winners`, amount: prize.winner });
-          finances.boardConfidence = Math.min(100, finances.boardConfidence + (cup.id === 'EGYPT_CUP' ? 8 : 5));
+          finances.boardConfidence = Math.min(100, finances.boardConfidence + (cup.id === 'CAF_CL' ? 15 : cup.id === 'CAF_CC' ? 10 : cup.id === 'EGYPT_CUP' ? 8 : 5));
           news.push(`🏆 ${cup.name} winners! ${user.name} beat ${nameOf(cup.runnerUpId)} in the final.`);
         } else if (cup.runnerUpId === c.user.id) {
           addLedger(finances, { ...ledger, kind: 'MATCH', label: `${cup.name} runners-up`, amount: prize.runnerUp });
@@ -272,7 +284,7 @@ export const useGame = create<GameState>((set, get) => {
         }
       }
 
-      let next: CareerRecord = { ...c, user, opponents, finances, pendingFixtureId: null, cups: { ...c.cups, cups, guests, winners, honours } };
+      let next: CareerRecord = { ...c, user, opponents, finances, pendingFixtureId: null, cups: { ...c.cups, cups, guests, ...(foreign ? { foreign } : {}), winners, honours } };
       if (news.length) next = { ...next, news: addNews(next, ...news) };
       if (userResult) {
         const saved = userResult;
@@ -375,7 +387,11 @@ export const useGame = create<GameState>((set, get) => {
       };
       if (league === 'EGY') {
         const guests = guestTeams(seed ^ 0x9e57);
-        career.cups = { ...emptyCups(1, guests), cups: createCups(1, career.season.rounds, teams, guests, EGY_SUPER_CUP_1, seed ^ 0xc0b) };
+        const foreign = foreignTeams(seed ^ 0xcaf);
+        career.cups = {
+          ...emptyCups(1, guests), foreign,
+          cups: createCups(1, career.season.rounds, teams, guests, EGY_SUPER_CUP_1, seed ^ 0xc0b, { ...EGY_CAF_1, foreign })
+        };
       }
       await db.transaction('rw', [db.career, db.matches, db.live, db.seasons], async () => {
         await db.matches.clear();
@@ -439,7 +455,7 @@ export const useGame = create<GameState>((set, get) => {
           matchId: `${tie.id}_${Date.now().toString(36)}`, seed: randomSeed(),
           home: userHome ? user : ai, away: userHome ? ai : user,
           userSide: userHome ? 'home' : 'away', speed: g.settings.defaultSpeed, autoPause: g.settings.autoPause,
-          knockout: tie.knockout, competition: cup.label
+          knockout: tie.knockout, competition: cup.label, aggregate: tieAggregate(c.cups!.cups, tie)
         };
       }
       const f = g.nextFixture();
@@ -506,10 +522,14 @@ export const useGame = create<GameState>((set, get) => {
         const oldTable = computeTable(allTeams(c), c.season.fixtures);
         const entrants = superCupEntrants(oldTable, cups.cups.find(x => x.id === 'EGYPT_CUP'));
         const guests = guestTeams(randomSeed());
+        const foreign = foreignTeams(randomSeed());
+        const caf = continentalEntrants(oldTable, cups.cups.find(x => x.id === 'EGYPT_CUP'));
         const honours = [...cups.honours];
         if (oldTable[0]?.teamId === c.user.id) honours.unshift({ season: c.season.number, cup: 'LEAGUE', name: 'Egyptian Premier League' });
-        cups = { ...cups, season: world.season.number, guests, honours, cups: createCups(world.season.number, world.season.rounds, teams, guests, entrants, randomSeed()) };
+        cups = { ...cups, season: world.season.number, guests, foreign, honours, cups: createCups(world.season.number, world.season.rounds, teams, guests, entrants, randomSeed(), { ...caf, foreign }) };
         news.push('The new season\'s cup draws are made: Super Cup, Egypt Cup and League Cup.');
+        const mine = caf.cl.includes(c.user.id) ? 'CAF Champions League' : caf.cc.includes(c.user.id) ? 'CAF Confederation Cup' : null;
+        if (mine) news.push(`${c.user.name} are in Africa this season: ${mine}.`);
       }
       const next: CareerRecord = {
         ...c, user: world.user, opponents: world.opponents, season: world.season, pendingFixtureId: null,

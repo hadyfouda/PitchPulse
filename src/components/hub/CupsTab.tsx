@@ -30,16 +30,18 @@ export function CupsTab() {
   const short = (id: string): string => teamById(id)?.shortName ?? id.slice(0, 3).toUpperCase();
   const userTies = cup.ties.filter(t => t.homeId === uid || t.awayId === uid);
   const lost = userTies.find(t => t.knockout && t.result && t.result.winnerId !== uid);
+  const stageName = (key: string): string => { const st = cup.stages.find(s => s.key === key); return st?.round ?? st?.label ?? key; };
   const entered = userTies.length > 0;
   const status = cup.winnerId === uid ? '🏆 Winners'
     : cup.winnerId ? `Won by ${name(cup.winnerId)}`
-    : !entered ? 'Not taking part'
-    : lost ? `Knocked out (${cup.stages.find(s => s.key === lost.stageKey)?.label ?? lost.stageKey})`
+    : !entered ? 'Not taking part this season'
+    : lost ? `Knocked out (${stageName(lost.stageKey)})`
     : 'Still in it';
   const prize = CUP_PRIZES[cup.id];
   const scorers = Object.values(cup.scorers).sort((a, b) => b.goals - a.goals).slice(0, 8);
   const groupStages = cup.stages.filter(s => s.kind === 'GROUP');
-  const koStages = cup.stages.filter(s => s.kind === 'KO');
+  const koStages = cup.stages.filter(s => s.kind === 'KO' && s.leg !== 2);
+  const secondLeg = (key: string) => cup.stages.find(s => s.leg === 2 && s.round && s.round === cup.stages.find(x => x.key === key)?.round);
 
   return (
     <div className="space-y-3">
@@ -56,6 +58,12 @@ export function CupsTab() {
           <p className="mt-1 text-[12px] text-zinc-500">Final: {name(cup.winnerId)} beat {name(cup.runnerUpId)}</p>
         )}
       </Panel>
+
+      {!cup.groups && groupStages.length > 0 && (
+        <Panel title={`Group stage · from ${whenText(groupStages[0]!.slot).toLowerCase()}`}>
+          <p className="text-[13px] text-zinc-500">Four groups of four, home and away. Drawn once the qualifying round is over.</p>
+        </Panel>
+      )}
 
       {cup.groups && groupStages.length > 0 && (
         <Panel title="Group stage · top two go through">
@@ -79,22 +87,29 @@ export function CupsTab() {
               </div>
             ))}
           </div>
-          {userTies.some(t => !t.knockout) && (
+          {userTies.some(t => !!t.group) && (
             <div className="mt-3 border-t border-zinc-800 pt-2">
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Your group matches</div>
-              <TieList ties={userTies.filter(t => !t.knockout)} uid={uid} short={short} name={name} />
+              <TieList ties={userTies.filter(t => !!t.group)} uid={uid} short={short} name={name} />
             </div>
           )}
         </Panel>
       )}
 
       {koStages.map(stage => {
-        const ties = cup.ties.filter(t => t.stageKey === stage.key);
+        const mineFirst = (a: CupTie, b: CupTie): number => Number(b.homeId === uid || b.awayId === uid) - Number(a.homeId === uid || a.awayId === uid);
+        const ties = cup.ties.filter(t => t.stageKey === stage.key).sort(mineFirst);
+        const leg2 = stage.leg === 1 ? secondLeg(stage.key) : undefined;
+        const when = leg2
+          ? `after league rounds ${Math.floor(stage.slot)} & ${Math.floor(leg2.slot)}`
+          : whenText(stage.slot);
         return (
-          <Panel key={stage.key} title={`${stage.label} · ${whenText(stage.slot)}${stage.neutral ? ' · neutral venue' : ''}`}>
+          <Panel key={stage.key} title={`${stage.round ?? stage.label} · ${when}${stage.neutral ? ' · neutral venue' : ''}`}>
             {ties.length === 0
               ? <p className="text-[13px] text-zinc-500">Draw after the previous round.</p>
-              : <TieList ties={[...ties].sort((a, b) => Number(b.homeId === uid || b.awayId === uid) - Number(a.homeId === uid || a.awayId === uid))} uid={uid} short={short} name={name} />}
+              : leg2
+                ? <PairList firsts={ties} seconds={cup.ties.filter(t => t.stageKey === leg2.key)} uid={uid} short={short} name={name} />
+                : <TieList ties={ties} uid={uid} short={short} name={name} />}
           </Panel>
         );
       })}
@@ -127,6 +142,39 @@ export function CupsTab() {
         </Panel>
       )}
     </div>
+  );
+}
+
+/** Two-legged ties: first-leg home side on the left, both scores, then the aggregate. */
+function PairList({ firsts, seconds, uid, short, name }: { firsts: CupTie[]; seconds: CupTie[]; uid: string; short: (id: string) => string; name: (id: string) => string }) {
+  return (
+    <ul className="divide-y divide-zinc-800/70 text-[13px]">
+      {firsts.map(l1 => {
+        const l2 = seconds.find(t => t.firstLegId === l1.id);
+        const a = l1.homeId, b = l1.awayId;
+        const r1 = l1.result, r2 = l2?.result;
+        const mine = a === uid || b === uid;
+        const winner = r2?.winnerId ?? null;
+        const aggA = r1 && r2 ? r1.home + r2.away : null, aggB = r1 && r2 ? r1.away + r2.home : null;
+        return (
+          <li key={l1.id} className={`flex items-center gap-2 py-1 ${mine ? 'text-emerald-200' : 'text-zinc-300'}`}>
+            <span className={`min-w-0 flex-1 truncate text-right ${winner === a ? 'font-semibold' : ''}`} title={name(a)}>
+              <span className="sm:hidden">{short(a)}</span><span className="hidden sm:inline">{name(a)}</span>
+            </span>
+            <span className="flex w-[5.5rem] flex-none justify-center gap-1 tabular-nums">
+              <span className="rounded bg-zinc-800/70 px-1">{r1 ? `${r1.home}–${r1.away}` : 'v'}</span>
+              <span className="rounded bg-zinc-800/70 px-1">{r2 ? `${r2.away}–${r2.home}` : '–'}</span>
+            </span>
+            <span className={`min-w-0 flex-1 truncate ${winner === b ? 'font-semibold' : ''}`} title={name(b)}>
+              <span className="sm:hidden">{short(b)}</span><span className="hidden sm:inline">{name(b)}</span>
+            </span>
+            <span className="w-16 flex-none text-right text-[11px] text-zinc-500">
+              {aggA !== null && aggB !== null ? `agg ${aggA}–${aggB}${r2?.pens ? ` · p ${r2.pens.away}–${r2.pens.home}` : r2?.et ? ' aet' : ''}` : ''}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

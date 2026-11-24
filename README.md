@@ -198,6 +198,23 @@ The **Cups** tab shows every round, AET and penalty results, League Cup group ta
 
 `npm run cups` plays a full headless season of all three cups.
 
+## African competitions
+
+Egypt's four continental places are played as two more cups in the same calendar:
+
+- **CAF Champions League**: the league champion and runner-up. In season 1 that is Al Ahly and Pyramids.
+- **CAF Confederation Cup**: the Egypt Cup winner (or the next league club if the winner is already in the Champions League) and the next league finisher. In season 1 that is Zamalek and Al Masry.
+
+Each competition has 32 clubs: the Egyptian sides plus 30 African clubs. Those include the 2025/26 group-stage clubs, such as Mamelodi Sundowns, Espérance, RS Berkane, AS FAR, Al Hilal, Wydad, USM Alger and Kaizer Chiefs, and clubs that usually fall in qualifying. The format runs like this:
+
+1. A two-legged second qualifying round. The seeded club is at home in the second leg.
+2. Four groups of four, home and away. The group draw is made from pots by strength.
+3. Two-legged quarter-finals, semi-finals and final. Group winners play the second leg at home.
+
+A second leg that is level on aggregate goes to extra time and penalties. There is no away-goals rule. The live screen and the Cups tab show the first-leg score and the aggregate.
+
+African squads are generated with names from the club's region (Maghreb, South Africa, East Africa, DR Congo, Angola, West Africa…) and the matching nationality. They are scaled to the same level scale as the Egyptian clubs. Prize money is €4M for the winner and €2M for the runner-up in the Champions League, and €2M and €1M in the Confederation Cup. Each round won and each group win also pays. The board loves a continental title and dislikes missing the Champions League group stage.
+
 ## Training ground
 
 - **Training tab** (hub): weekly sessions run automatically between rounds.

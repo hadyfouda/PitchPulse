@@ -72,7 +72,7 @@ export const EGYPT_WAGE_FACTOR = 0.45;
  * Big real squads make the best XI of ~33 random draws far above the club level, so every squad is shifted until
  * its best XI matches the target (club level + 4). Keeps the hierarchy between clubs exactly as estimated.
  */
-function normaliseSquad(players: Player[], target: number, tactics: Tactics, identity: TacticalIdentity): void {
+export function normaliseSquad(players: Player[], target: number, tactics: Tactics, identity: TacticalIdentity): void {
   for (let i = 0; i < 4; i++) {
     const xi = teamOverall({ players, lineup: autoLineup({ players, tactics, identity }) } as Team);
     const shift = target - xi;

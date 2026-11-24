@@ -27,6 +27,7 @@ export function NextMatch() {
   const roundError = useGame(s => s.roundError);
   const user = career.user;
   const match = cup ? { homeId: cup.tie.homeId, awayId: cup.tie.awayId } : fixture;
+  const firstLeg = cup?.tie.firstLegId ? career.cups?.cups.flatMap(x => x.ties).find(t => t.id === cup.tie.firstLegId) : undefined;
   if (!match) {
     return (
       <Panel title="Cup round in progress">
@@ -62,8 +63,12 @@ export function NextMatch() {
         {cup && (
           <div className="mb-1 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-200">
             <span>🏆 {cup.label}</span>
-            {cup.tie.knockout && <span className="text-amber-300/70">· Knockout: extra time and penalties if level</span>}
-            {!cup.tie.knockout && <span className="text-amber-300/70">· Group match</span>}
+            {cup.tie.leg === 1 && <span className="text-amber-300/70">· First leg: a draw is fine, the tie is decided next time</span>}
+            {cup.tie.leg === 2 && firstLeg?.result && (
+              <span className="text-amber-300/70">· First leg {teamById(firstLeg.homeId)?.shortName} {firstLeg.result.home}–{firstLeg.result.away} {teamById(firstLeg.awayId)?.shortName}; extra time and penalties if level on aggregate</span>
+            )}
+            {cup.tie.knockout && !cup.tie.leg && <span className="text-amber-300/70">· Knockout: extra time and penalties if level</span>}
+            {cup.tie.group && <span className="text-amber-300/70">· Group match</span>}
           </div>
         )}
         <div className="flex items-center justify-between gap-4 py-2">
@@ -98,7 +103,7 @@ export function NextMatch() {
       <Panel title={`Scout report · ${opp.name}`}>
         <div className="grid gap-3 sm:grid-cols-3">
           <Fact label="Style" value={report.style} />
-          <Fact label="League position" value={career.cups?.guests.some(g => g.id === opp.id) ? 'Lower division side' : report.position} />
+          <Fact label="League position" value={career.cups?.guests.some(g => g.id === opp.id) ? 'Lower division side' : career.cups?.foreign?.some(g => g.id === opp.id) ? 'African club' : report.position} />
           <div><div className="text-[11px] text-zinc-500">Form</div><div className="mt-1">{report.form.length ? <FormDots form={report.form} /> : <span className="text-sm text-zinc-400">—</span>}</div></div>
           <Fact label="Usual shape" value={report.shape} wrap />
           <Fact wrap label="Scored / conceded" value={report.goalsFor || report.goalsAgainst ? `${report.goalsFor.toFixed(1)} / ${report.goalsAgainst.toFixed(1)} per game` : '—'} />

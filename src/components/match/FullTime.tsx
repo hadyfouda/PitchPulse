@@ -32,7 +32,8 @@ export function FullTime() {
   const { home, away } = summary;
   const us = summary.userSide === 'home' ? home : away;
   const them = summary.userSide === 'home' ? away : home;
-  const result = summary.winner ? (summary.winner === summary.userSide ? 'Victory' : 'Defeat')
+  const result = summary.aggregate && summary.winner ? (summary.winner === summary.userSide ? 'Through' : 'Knocked out')
+    : summary.winner ? (summary.winner === summary.userSide ? 'Victory' : 'Defeat')
     : us.score > them.score ? 'Victory' : us.score < them.score ? 'Defeat' : 'Draw';
   const so = summary.shootout;
   const decided = so ? `${so.home}–${so.away} on penalties` : summary.extraTime ? 'After extra time' : null;
@@ -45,7 +46,7 @@ export function FullTime() {
   return (
     <div className="mx-auto max-w-6xl space-y-3 px-3 py-5">
       <div className="panel p-5 text-center">
-        <div className={`text-xs font-semibold uppercase tracking-[0.3em] ${result === 'Victory' ? 'text-emerald-400' : result === 'Defeat' ? 'text-rose-400' : 'text-zinc-400'}`}>
+        <div className={`text-xs font-semibold uppercase tracking-[0.3em] ${result === 'Victory' || result === 'Through' ? 'text-emerald-400' : result === 'Defeat' || result === 'Knocked out' ? 'text-rose-400' : 'text-zinc-400'}`}>
           {reviewing ? `Analytics Room · ${new Date(summary.playedAt).toLocaleDateString()}` : 'Full-time'} · {result}
         </div>
         <div className="mt-3 flex items-center justify-center gap-4">
@@ -161,7 +162,7 @@ function CupRoundPanel({ summary }: { summary: MatchSummary }) {
               <span className={`flex-1 truncate text-right ${r?.winnerId === t.homeId ? 'font-semibold' : ''}`}>{teamById(t.homeId)?.name}</span>
               <span className="tabular w-12 text-center font-semibold text-zinc-50">{r ? `${r.home}–${r.away}` : 'v'}</span>
               <span className={`flex-1 truncate ${r?.winnerId === t.awayId ? 'font-semibold' : ''}`}>{teamById(t.awayId)?.name}</span>
-              <span className="w-14 text-right text-[11px] text-zinc-500">{r?.pens ? `${r.pens.home}–${r.pens.away} p` : r?.et ? 'AET' : ''}</span>
+              <span className="w-20 text-right text-[11px] text-zinc-500">{r?.agg ? `agg ${r.agg.home}–${r.agg.away}${r.pens ? ' · p' : ''}` : r?.pens ? `${r.pens.home}–${r.pens.away} p` : r?.et ? 'AET' : ''}</span>
             </li>
           );
         })}

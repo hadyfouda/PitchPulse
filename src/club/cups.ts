@@ -13,16 +13,41 @@ import { Rng } from '../engine/rng.ts';
 import { AI_IDENTITIES, IDENTITIES } from '../engine/identities.ts';
 import { autoLineup, generateSquad, teamOverall } from '../data/generators.ts';
 import { fatigueFor } from '../league/condition.ts';
+import { normaliseSquad } from '../data/egypt/world.ts';
+import { CAF_CC_CLUBS, CAF_CL_CLUBS, cafNamePools, type CafClub } from '../data/caf.ts';
 
-export const CUP_NAMES: Record<CupId, string> = { SUPER: 'Egyptian Super Cup', EGYPT_CUP: 'Egypt Cup', LEAGUE_CUP: 'League Cup' };
-export const CUP_SHORT: Record<CupId, string> = { SUPER: 'Super Cup', EGYPT_CUP: 'Egypt Cup', LEAGUE_CUP: 'League Cup' };
+export const CUP_NAMES: Record<CupId, string> = {
+  SUPER: 'Egyptian Super Cup', EGYPT_CUP: 'Egypt Cup', LEAGUE_CUP: 'League Cup',
+  CAF_CL: 'CAF Champions League', CAF_CC: 'CAF Confederation Cup'
+};
+export const CUP_SHORT: Record<CupId, string> = {
+  SUPER: 'Super Cup', EGYPT_CUP: 'Egypt Cup', LEAGUE_CUP: 'League Cup', CAF_CL: 'Champions League', CAF_CC: 'Confed Cup'
+};
+export const isContinental = (id: CupId): boolean => id === 'CAF_CL' || id === 'CAF_CC';
 
 /** Prize money for the user's club (€). */
 export const CUP_PRIZES: Record<CupId, { tieWin: number; groupWin: number; winner: number; runnerUp: number }> = {
   SUPER: { tieWin: 300_000, groupWin: 0, winner: 1_500_000, runnerUp: 600_000 },
   EGYPT_CUP: { tieWin: 250_000, groupWin: 0, winner: 3_000_000, runnerUp: 1_200_000 },
-  LEAGUE_CUP: { tieWin: 200_000, groupWin: 80_000, winner: 1_500_000, runnerUp: 600_000 }
+  LEAGUE_CUP: { tieWin: 200_000, groupWin: 80_000, winner: 1_500_000, runnerUp: 600_000 },
+  CAF_CL: { tieWin: 400_000, groupWin: 120_000, winner: 4_000_000, runnerUp: 2_000_000 },
+  CAF_CC: { tieWin: 250_000, groupWin: 70_000, winner: 2_000_000, runnerUp: 1_000_000 }
 };
+
+/** Continental calendar: second qualifying round, six group matchdays, then two-legged QF, SF and final. */
+function cafStages(f: number): CupStage[] {
+  const two = (key: string, round: string, a: number, b: number): CupStage[] => [
+    { key: `${key}1`, label: `${round} · 1st leg`, round, slot: a + f, kind: 'KO', leg: 1 },
+    { key: `${key}2`, label: `${round} · 2nd leg`, round, slot: b + f, kind: 'KO', leg: 2 }
+  ];
+  return [
+    ...two('R2', 'Second qualifying round', 6, 7),
+    ...[11, 12, 17, 18, 19, 21].map((k, i): CupStage => ({ key: `G${i + 1}`, label: `Group matchday ${i + 1}`, slot: k + f, kind: 'GROUP', matchday: i + 1 })),
+    ...two('QF', 'Quarter-finals', 24, 25),
+    ...two('SF', 'Semi-finals', 28, 29),
+    ...two('F', 'Final', 32, 35)
+  ];
+}
 
 /** Calendar for a 38-round season (scaled for shorter seasons). */
 const STAGES: Record<CupId, CupStage[]> = {
@@ -46,7 +71,9 @@ const STAGES: Record<CupId, CupStage[]> = {
     { key: 'QF', label: 'Quarter-finals', slot: 26.5, kind: 'KO' },
     { key: 'SF', label: 'Semi-finals', slot: 30.5, kind: 'KO', neutral: true },
     { key: 'F', label: 'Final', slot: 34.5, kind: 'KO', neutral: true }
-  ]
+  ],
+  CAF_CL: cafStages(0.7),
+  CAF_CC: cafStages(0.8)
 };
 
 /** Lower-division clubs invited to the Egypt Cup (squads are generated). */
@@ -71,6 +98,7 @@ export function guestTeams(seed: number): Team[] {
     const identity: TacticalIdentity = AI_IDENTITIES[(i * 3) % AI_IDENTITIES.length] ?? 'COUNTER_ATTACK';
     const tactics: Tactics = { ...IDENTITIES[identity].tactics };
     const players = generateSquad(rng, g.level).map(p => ({ ...p, id: `guest${i}_${p.id}` })) as Player[];
+    normaliseSquad(players, g.level + 4, tactics, identity);
     const base = { players, tactics, identity };
     return {
       id: `guest_${i}`, name: g.name, shortName: g.short, colors: { primary: g.primary, secondary: g.secondary },
@@ -87,14 +115,45 @@ const shuffle = <T,>(arr: readonly T[], rng: Rng): T[] => {
 
 function stagesFor(id: CupId, rounds: number): CupStage[] {
   const k = rounds / 38;
-  return STAGES[id].map(s => ({ ...s, slot: s.slot < 1 ? s.slot : Math.round(s.slot * k) + 0.5 }));
+  if (rounds === 38) return STAGES[id].map(s => ({ ...s }));
+  return STAGES[id].map(s => ({ ...s, slot: s.slot < 1 ? s.slot : Math.round(Math.floor(s.slot) * k) + Math.round((s.slot % 1) * 10) / 10 }));
 }
 
-function tie(cup: CupState, stage: CupStage, homeId: string, awayId: string, n: number, group?: string): CupTie {
-  return {
+function tie(cup: CupState, stage: CupStage, homeId: string, awayId: string, n: number, group?: string, firstLegId?: string): CupTie {
+  const t: CupTie = {
     id: `${cup.id}_s${cup.season}_${stage.key}_${n}`, cup: cup.id, stageKey: stage.key, slot: stage.slot,
-    homeId, awayId, neutral: !!stage.neutral, knockout: stage.kind === 'KO', group, result: null
+    homeId, awayId, neutral: !!stage.neutral, knockout: stage.kind === 'KO' && stage.leg !== 1, group, result: null
   };
+  if (stage.leg) t.leg = stage.leg;
+  if (firstLegId) t.firstLegId = firstLegId;
+  return t;
+}
+
+/** Double round robin for 4 teams: 6 matchdays, each pair meets home and away. */
+const FOUR_TEAM_DAYS: Array<Array<[number, number]>> = [
+  [[0, 1], [2, 3]], [[3, 0], [1, 2]], [[0, 2], [3, 1]],
+  [[1, 0], [3, 2]], [[0, 3], [2, 1]], [[2, 0], [1, 3]]
+];
+
+/** Continental group draw: four pots by seeding, one club from each pot per group, then all six matchdays. */
+function drawGroups(cup: CupState, ids: string[], rng: Rng): void {
+  const rank = (id: string): number => { const i = cup.seeds?.indexOf(id) ?? -1; return i < 0 ? 999 : i; };
+  const seeded = [...ids].sort((a, b) => rank(a) - rank(b));
+  const letters = ['A', 'B', 'C', 'D'];
+  const groups: Record<string, string[]> = { A: [], B: [], C: [], D: [] };
+  for (let pot = 0; pot < 4; pot++) {
+    shuffle(seeded.slice(pot * 4, pot * 4 + 4), rng).forEach((id, i) => groups[letters[i]!]!.push(id));
+  }
+  cup.groups = groups;
+  const stages = cup.stages.filter(st => st.kind === 'GROUP');
+  let n = 1;
+  for (const [g, members] of Object.entries(groups)) {
+    FOUR_TEAM_DAYS.forEach((day, d) => {
+      const stage = stages[d];
+      if (!stage) return;
+      for (const [h, a] of day) if (members[h] && members[a]) cup.ties.push(tie(cup, stage, members[h]!, members[a]!, n++, g));
+    });
+  }
 }
 
 /** Round robin for 5 teams: 5 matchdays, 2 matches each (one team rests). */
@@ -117,7 +176,14 @@ function fiveTeamRoundRobin(ids: string[]): Array<Array<[string, string]>> {
  * The season's cups. `superEntrants`: 4 ids in order [league champion, cup winner, league runner-up, cup runner-up].
  * `leagueTeams`: the 20 league clubs.
  */
-export function createCups(season: number, rounds: number, leagueTeams: Team[], guests: Team[], superEntrants: string[], seed: number): CupState[] {
+export interface ContinentalEntry {
+  /** Egyptian clubs in each competition. */
+  cl: string[];
+  cc: string[];
+  foreign: Team[];
+}
+
+export function createCups(season: number, rounds: number, leagueTeams: Team[], guests: Team[], superEntrants: string[], seed: number, continental?: ContinentalEntry): CupState[] {
   const rng = new Rng(seed);
   const base = (id: CupId): CupState => ({ id, name: CUP_NAMES[id], season, stages: stagesFor(id, rounds), ties: [], scorers: {}, winnerId: null, runnerUpId: null });
 
@@ -149,7 +215,58 @@ export function createCups(season: number, rounds: number, leagueTeams: Team[], 
       for (const [h, a] of day) lc.ties.push(tie(lc, lc.stages[d]!, h, a, n++, g));
     });
   }
-  return e0 ? [sup, cup, lc] : [cup, lc];
+  const out = e0 ? [sup, cup, lc] : [cup, lc];
+  if (continental) {
+    const strength = new Map([...leagueTeams, ...continental.foreign].map(t => [t.id, teamOverall(t)]));
+    for (const id of ['CAF_CL', 'CAF_CC'] as const) {
+      const comp = base(id);
+      const foreign = continental.foreign.filter(t => t.id.startsWith(id === 'CAF_CL' ? 'cafcl_' : 'cafcc_')).map(t => t.id);
+      const entrants = [...(id === 'CAF_CL' ? continental.cl : continental.cc), ...foreign];
+      comp.seeds = [...entrants].sort((a, b) => (strength.get(b) ?? 0) - (strength.get(a) ?? 0));
+      // Second qualifying round: seeded half against unseeded half, the seeded club at home in the second leg
+      const half = Math.floor(comp.seeds.length / 2);
+      const top = shuffle(comp.seeds.slice(0, half), rng), bottom = shuffle(comp.seeds.slice(half, half * 2), rng);
+      top.forEach((s, i) => comp.ties.push(tie(comp, comp.stages[0]!, bottom[i]!, s, i + 1)));
+      out.push(comp);
+    }
+  }
+  return out;
+}
+
+/** Generated squads for the African clubs (ids cafcl_* / cafcc_*). */
+export function foreignTeams(seed: number): Team[] {
+  const rng = new Rng(seed);
+  const make = (c: CafClub, prefix: string, i: number): Team => {
+    const identity: TacticalIdentity = AI_IDENTITIES[(i * 5 + c.level) % AI_IDENTITIES.length] ?? 'COUNTER_ATTACK';
+    const tactics: Tactics = { ...IDENTITIES[identity].tactics };
+    const id = `${prefix}_${c.slug}`;
+    const players = generateSquad(rng, c.level, cafNamePools(c)).map(p => ({ ...p, id: `${id}_${p.id}` })) as Player[];
+    // Same scale as the Egyptian clubs: best XI = level + 4
+    normaliseSquad(players, c.level + 4, tactics, identity);
+    const team = { players, tactics, identity };
+    return {
+      id, name: c.name, shortName: c.short, colors: { primary: c.primary, secondary: c.secondary },
+      identity, level: c.level, players, tactics, lineup: autoLineup(team), isUser: false
+    };
+  };
+  return [...CAF_CL_CLUBS.map((c, i) => make(c, 'cafcl', i)), ...CAF_CC_CLUBS.map((c, i) => make(c, 'cafcc', i + 7))];
+}
+
+/** Egypt's four continental places: league top two to the Champions League; cup winner and next league finishers to the Confederation Cup. */
+export function continentalEntrants(table: Array<{ teamId: string }>, egyptCup: CupState | undefined): { cl: string[]; cc: string[] } {
+  const cl = table.slice(0, 2).map(r => r.teamId);
+  const cc: string[] = [];
+  const cupWinner = egyptCup?.winnerId;
+  if (cupWinner && !cupWinner.startsWith('guest_') && !cl.includes(cupWinner)) cc.push(cupWinner);
+  for (const r of table.slice(2)) { if (cc.length >= 2) break; if (!cc.includes(r.teamId)) cc.push(r.teamId); }
+  return { cl, cc };
+}
+
+/** First-leg goals for a second leg, from the second leg's point of view (home side first). */
+export function tieAggregate(cups: CupState[], t: CupTie): { home: number; away: number } | undefined {
+  if (!t.firstLegId) return undefined;
+  const first = cups.find(c => c.id === t.cup)?.ties.find(x => x.id === t.firstLegId);
+  return first?.result ? { home: first.result.away, away: first.result.home } : undefined;
 }
 
 export interface GroupRow { teamId: string; p: number; w: number; d: number; l: number; gf: number; ga: number; pts: number }
@@ -183,11 +300,22 @@ export function progressCup(cup: CupState, rng: Rng): void {
       return;
     }
     if (cup.ties.some(t => t.stageKey === next.key)) continue;
-    if (next.kind === 'GROUP') continue;
+    if (next.leg === 2) {
+      // Return legs: same pairs, venues swapped
+      ties.forEach((t, k) => cup.ties.push(tie(cup, next, t.awayId, t.homeId, k + 1, undefined, t.id)));
+      return;
+    }
+    if (next.kind === 'GROUP') {
+      if (stage.kind !== 'GROUP') drawGroups(cup, ties.map(t => t.result!.winnerId!), rng);
+      continue;
+    }
     let pairs: Array<[string, string]>;
     if (stage.kind === 'GROUP') {
       const pos = (g: string, k: number): string => groupTable(cup, g)[k]!.teamId;
-      pairs = [[pos('A', 0), pos('B', 1)], [pos('B', 0), pos('A', 1)], [pos('C', 0), pos('D', 1)], [pos('D', 0), pos('C', 1)]];
+      pairs = next.leg === 1
+        // Group winners play the second leg at home
+        ? [[pos('B', 1), pos('A', 0)], [pos('A', 1), pos('B', 0)], [pos('D', 1), pos('C', 0)], [pos('C', 1), pos('D', 0)]]
+        : [[pos('A', 0), pos('B', 1)], [pos('B', 0), pos('A', 1)], [pos('C', 0), pos('D', 1)], [pos('D', 0), pos('C', 1)]];
     } else {
       const winners = shuffle(ties.map(t => t.result!.winnerId!), rng);
       pairs = [];
@@ -223,10 +351,15 @@ export function recordCupResults(cups: CupState[], summaries: ReadonlyMap<string
       const sm = summaries.get(t.id);
       if (!sm || t.result) continue;
       const h = sm.home.score, a = sm.away.score;
+      const first = t.firstLegId ? cup.ties.find(x => x.id === t.firstLegId)?.result : undefined;
+      const agg = first ? { home: h + first.away, away: a + first.home } : undefined;
+      const [th, ta] = agg ? [agg.home, agg.away] : [h, a];
       let winnerId: string | null = null;
-      if (h !== a) winnerId = h > a ? t.homeId : t.awayId;
+      if (th !== ta) winnerId = th > ta ? t.homeId : t.awayId;
       else if (sm.shootout) winnerId = sm.shootout.home > sm.shootout.away ? t.homeId : t.awayId;
+      else if (t.knockout) winnerId = t.homeId; // safety net: a knockout tie always produces a winner
       t.result = { home: h, away: a, et: !!sm.extraTime, pens: sm.shootout ? { home: sm.shootout.home, away: sm.shootout.away } : null, winnerId, matchId: sm.id };
+      if (agg) t.result.agg = agg;
       for (const [teamId, side] of [[t.homeId, sm.home], [t.awayId, sm.away]] as const) {
         for (const ps of side.players) {
           if (!isDetailed(ps) || ps.goals <= 0) continue;

@@ -6,7 +6,7 @@ import { Rng } from '../engine/rng.ts';
 import { FORMATION_SLOTS } from '../engine/formations.ts';
 import { IDENTITIES, AI_IDENTITIES } from '../engine/identities.ts';
 import { KIND_POSITION, ROLES_FOR_KIND, defaultRoleFor, positionFit } from '../engine/roles.ts';
-import { CLUB_SEEDS, NAME_POOLS, type ClubSeed } from './names.ts';
+import { CLUB_SEEDS, NAME_POOLS, type ClubSeed, type NamePool } from './names.ts';
 
 const clamp = (v: number): number => Math.max(1, Math.min(99, Math.round(v)));
 
@@ -47,13 +47,18 @@ export interface PlayerGenOptions {
   ageNeutral?: boolean;
   idPrefix?: string;
   potentialBonus?: number;
+  /** Name pools to draw from (defaults to the global mix). The pool's nation becomes the player's nationality. */
+  pools?: readonly NamePool[];
 }
 
 export function generatePlayer(rng: Rng, position: Position, level: number, shirt: number, used: Set<string>, opts: PlayerGenOptions = {}): Player {
   let name = '';
+  let nation: string | undefined;
+  const pools = opts.pools ?? NAME_POOLS;
   for (let i = 0; i < 20; i++) {
-    const pool = rng.weighted(NAME_POOLS.map(p => [p, p.weight] as const));
+    const pool = rng.weighted(pools.map(p => [p, p.weight] as const));
     name = `${rng.pick(pool.first)} ${rng.pick(pool.last)}`;
+    nation = pool.nation;
     if (!used.has(name)) break;
   }
   used.add(name);
@@ -71,6 +76,7 @@ export function generatePlayer(rng: Rng, position: Position, level: number, shir
     attrs, fitness: 100, sharpness: 70, morale: rng.int(62, 80), injury: null, suspension: 0, seasonYellows: 0,
     wage: 0, potential: 0
   };
+  if (opts.pools && nation && nation.length === 3) p.nationality = nation;
   const ovr = playerOverall(p);
   const headroom = age <= 20 ? rng.int(4, 14) : age <= 23 ? rng.int(2, 8) : age <= 27 ? rng.int(0, 3) : 0;
   p.potential = Math.min(96, ovr + headroom + (opts.potentialBonus ?? 0));
@@ -101,7 +107,7 @@ export function playerValue(p: Player): number {
 
 const SQUAD_SHAPE: Array<[Position, number]> = [['GK', 2], ['DEF', 7], ['MID', 6], ['FWD', 5]];
 
-export function generateSquad(rng: Rng, level: number): Player[] {
+export function generateSquad(rng: Rng, level: number, pools?: readonly NamePool[]): Player[] {
   const used = new Set<string>();
   const shirts: Record<Position, number[]> = {
     GK: [1, 13], DEF: [2, 3, 4, 5, 6, 12, 15], MID: [8, 10, 14, 16, 18, 20], FWD: [7, 9, 11, 17, 19]
@@ -110,7 +116,7 @@ export function generateSquad(rng: Rng, level: number): Player[] {
   for (const [pos, n] of SQUAD_SHAPE) {
     for (let i = 0; i < n; i++) {
       const starterBoost = i < (pos === 'GK' ? 1 : n - 2) ? 3 : -3;
-      players.push(generatePlayer(rng, pos, level + starterBoost, shirts[pos][i] ?? 30 + i, used));
+      players.push(generatePlayer(rng, pos, level + starterBoost, shirts[pos][i] ?? 30 + i, used, pools ? { pools } : {}));
     }
   }
   return players;
