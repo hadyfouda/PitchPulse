@@ -27,7 +27,8 @@ Live build: **https://hadyfouda.github.io/pitchpulse/**
 It opens full-screen like a native app and works completely offline after the first visit (the service worker
 precaches every file, including both Web Workers). Your career lives in the phone's IndexedDB — use *Export save* in the
 Club tab to back it up or move it between devices. On phones the three desktop columns become a bottom tab bar
-(Club / Squad / Tactics in the hub, Live / Squad / Touchline during a match).
+(Club / Squad / Tactics in the hub, Live / Squad / Touchline during a match). The Squad screens show the XI on a pitch in
+formation shape: tap a player to edit him or his role, tap another position to swap, or a bench player to bring him in.
 
 Deploying: the `gh-pages` branch holds the contents of `dist/` (`npm run build`), served by GitHub Pages.
 

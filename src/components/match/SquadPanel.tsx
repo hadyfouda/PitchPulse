@@ -6,7 +6,9 @@ import { MAX_SUBS } from '../../engine/constants.ts';
 import { engine } from '../../store/engineBridge.ts';
 import { useMatch } from '../../store/matchStore.ts';
 import { ratingClass, staminaClass } from '../../lib/format.ts';
-import { Panel } from '../ui/controls.tsx';
+import { useState } from 'react';
+import { Panel, Segmented } from '../ui/controls.tsx';
+import { PitchFormation, lastName, type PitchToken } from '../ui/PitchFormation.tsx';
 
 export function SquadPanel({ v }: { v: EngineTick }) {
   const team = v.userSide === 'home' ? v.home : v.away;
@@ -26,6 +28,26 @@ export function SquadPanel({ v }: { v: EngineTick }) {
   const byId = new Map(team.players.map(p => [p.id, p]));
   const outKind = subOutId ? byId.get(subOutId)?.slotKind ?? null : null;
 
+  const [view, setView] = useState<'PITCH' | 'LIST'>('PITCH');
+  const selectedPlayer = subOutId ? byId.get(subOutId) : undefined;
+  const selectedRole = selectedPlayer ? pendingRoles.find(a => a.playerId === selectedPlayer.id)?.role : undefined;
+  const onPitch = [...xi, ...injured];
+  const tokens: PitchToken[] = onPitch.map(p => ({
+    slot: p.slot, number: p.shirt, name: lastName(p.name), ring: p.status === 'INJURED_OFF' ? 0 : p.stamina,
+    sub: p.status === 'INJURED_OFF' ? 'INJURED' : ROLE_INFO[pendingRoles.find(a => a.playerId === p.id)?.role ?? p.role].short,
+    tone: p.status === 'INJURED_OFF' ? 'error' : pendingOut.has(p.id) ? 'muted' : 'normal',
+    selected: subOutId === p.id,
+    badge: p.rating.toFixed(1), badgeClass: `bg-zinc-950/90 ${ratingClass(p.rating)}`,
+    marks: <>
+      {p.yellow > 0 && <span className="ml-0.5 inline-block h-2.5 w-[7px] flex-none rounded-[1px] bg-amber-400" />}
+      {p.goals > 0 && <span className="ml-0.5 flex-none text-[9px]">⚽{p.goals > 1 ? p.goals : ''}</span>}
+    </>,
+    title: `${p.name} · stamina ${p.stamina}% · rating ${p.rating.toFixed(1)}`
+  }));
+  const occupied = new Set(onPitch.map(p => p.slot));
+  const emptySlots = gone.filter(p => p.status === 'SENT_OFF' && !occupied.has(p.slot)).map(p => ({ slot: p.slot, label: '🟥' }));
+  const tapSlot = (slot: number): void => { const p = onPitch.find(x => x.slot === slot); if (p) pickOut(p); };
+
   const pickOut = (p: PlayerView): void => {
     if (finished || pendingOut.has(p.id)) return;
     setSubOut(subOutId === p.id ? null : p.id);
@@ -38,7 +60,26 @@ export function SquadPanel({ v }: { v: EngineTick }) {
 
   return (
     <Panel title={`${team.shortName} · Starting XI`} right={<span className="tabular text-[11px] text-zinc-500">Subs {team.subsUsed + pendingSubs.length}/{MAX_SUBS}</span>}>
-      <ul className="space-y-0.5">
+      <div className="mb-2.5"><Segmented size="sm" value={view} onChange={setView} options={[{ value: 'PITCH', label: 'Pitch' }, { value: 'LIST', label: 'List' }]} /></div>
+      {view === 'PITCH' && (
+        <>
+          <PitchFormation formation={team.tactics.formation} tokens={tokens} emptySlots={emptySlots} color={team.color} onTap={tapSlot} />
+          <div className="mt-2 flex flex-wrap justify-center gap-x-3 text-[10px] text-zinc-500"><span>Ring = stamina</span><span>Corner = match rating</span></div>
+          {selectedPlayer ? (
+            <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+              <span className="min-w-0 flex-1 truncate text-amber-100"><b>{selectedPlayer.name}</b> · stamina {selectedPlayer.stamina}%</span>
+              {selectedPlayer.slotKind && ROLES_FOR_KIND[selectedPlayer.slotKind].length > 1 && (
+                <select value={selectedRole ?? selectedPlayer.role} aria-label="Role"
+                  onChange={e => engine.queue({ kind: 'ROLE', playerId: selectedPlayer.id, role: e.target.value as RoleId })}
+                  className={`flex-none rounded border bg-zinc-900 px-1 py-0.5 text-[11px] ${selectedRole ? 'border-amber-500/60 text-amber-200' : 'border-zinc-700 text-zinc-300'}`}>
+                  {ROLES_FOR_KIND[selectedPlayer.slotKind].map(r => <option key={r} value={r}>{ROLE_INFO[r].short} · {ROLE_INFO[r].label}</option>)}
+                </select>
+              )}
+            </div>
+          ) : !finished && <p className="mt-2 text-center text-[11px] text-zinc-500">Tap a player to change his role or substitute him.</p>}
+        </>
+      )}
+      {view === 'LIST' && <ul className="space-y-0.5">
         {xi.map(p => (
           <PlayerRow key={p.id} p={p} selected={subOutId === p.id} pendingOut={pendingOut.has(p.id)}
             pendingRole={pendingRoles.find(a => a.playerId === p.id)?.role}
@@ -47,7 +88,7 @@ export function SquadPanel({ v }: { v: EngineTick }) {
         {injured.map(p => (
           <PlayerRow key={p.id} p={p} selected={subOutId === p.id} pendingOut={pendingOut.has(p.id)} onClick={() => pickOut(p)} />
         ))}
-      </ul>
+      </ul>}
 
       <div className="mb-1.5 mt-3 flex items-center justify-between">
         <span className="panel-title">Bench</span>
