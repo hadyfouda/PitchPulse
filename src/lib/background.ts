@@ -8,7 +8,7 @@
  * buttons that control the match. (The ▶/⏸ state mirrors the match; the track itself never stops.) Everything stops at full-time or when the match is abandoned.
  */
 import type { EngineTick } from '../types/match.ts';
-import { clockText } from './format.ts';
+import { MS_PER_MATCH_MINUTE } from '../engine/constants.ts';
 
 let audio: HTMLAudioElement | null = null;
 let audioUrl: string | null = null;
@@ -48,7 +48,10 @@ export const backgroundMode = {
       const ms = navigator.mediaSession;
       ms.setActionHandler('play', () => handlers?.play());
       ms.setActionHandler('pause', () => handlers?.pause());
-      try { ms.setActionHandler('stop', null); } catch { /* unsupported action */ }
+      // No scrubbing or skipping: the lock-screen bar shows the match clock, it isn't a seek bar
+      for (const a of ['stop', 'seekto', 'seekbackward', 'seekforward', 'previoustrack', 'nexttrack'] as const) {
+        try { ms.setActionHandler(a, null); } catch { /* unsupported action */ }
+      }
       ms.playbackState = 'playing';
     }
     lastKey = '';
@@ -57,18 +60,31 @@ export const backgroundMode = {
   /** Keep the lock-screen scoreboard current (only touches it when the score, minute or status changes). */
   update(v: EngineTick): void {
     if (!audio || !('mediaSession' in navigator)) return;
-    const status = v.status === 'PAUSED' ? 'Paused' : v.status === 'FINISHED' ? 'Full-time' : 'Live';
-    const key = `${v.home.score}-${v.away.score}-${v.minute}-${status}`;
+    const running = v.status === 'RUNNING' && (v.period === 'FIRST' || v.period === 'SECOND');
+    const status = v.period === 'HT' ? 'Half-time' : v.status === 'FINISHED' || v.period === 'FT' ? 'Full-time' : v.status === 'PAUSED' ? 'Paused' : 'Live';
+    const key = `${v.home.score}-${v.away.score}-${Math.floor(v.clockSeconds / 60)}-${status}-${v.speed}`;
     if (key === lastKey) return;
     lastKey = key;
+    const halfEnd = v.period === 'FIRST' ? 45 * 60 : 90 * 60;
+    const minute = v.period === 'PRE' ? "0'" : v.period === 'HT' ? "45'" : v.clockSeconds >= halfEnd
+      ? `${halfEnd / 60}+${Math.floor((v.clockSeconds - halfEnd) / 60) + 1}'` : `${Math.floor(v.clockSeconds / 60) + 1}'`;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `${v.home.shortName} ${v.home.score}–${v.away.score} ${v.away.shortName}`,
-      artist: `${clockText(v)} · ${status}`,
+      artist: `${minute} · ${status}`,
       album: 'PitchPulse',
       artwork: [{ src: './icons/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: './icons/icon-512.png', sizes: '512x512', type: 'image/png' }]
     });
     // The quiet track keeps playing either way; the shown state mirrors the match so ▶ / ⏸ do the right thing
-    navigator.mediaSession.playbackState = v.status === 'RUNNING' ? 'playing' : 'paused';
+    navigator.mediaSession.playbackState = running ? 'playing' : 'paused';
+    // The progress bar is the match clock (0–90'): the OS animates it at match speed between updates
+    try {
+      const position = Math.max(0, v.clockSeconds);
+      navigator.mediaSession.setPositionState({
+        duration: Math.max(90 * 60, position + 60),
+        position,
+        playbackRate: running ? 60_000 / MS_PER_MATCH_MINUTE[v.speed] : 1
+      });
+    } catch { /* setPositionState unsupported */ }
   },
 
   stop(): void {
