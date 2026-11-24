@@ -41,7 +41,11 @@ export interface LifecycleNews {
 }
 
 /** Retire, develop and re-price every player; refill AI squads. Mutates the teams passed in. */
-export function seasonLifecycle(user: Team, opponents: Team[], academy: Academy, seed: number): LifecycleNews {
+/**
+ * `userDecline` scales the summer decline of the user's players (from the season's training load, see training.ts).
+ * The user's players don't grow over the summer — they develop in training during the season instead.
+ */
+export function seasonLifecycle(user: Team, opponents: Team[], academy: Academy, seed: number, userDecline = 1): LifecycleNews {
   const rng = new Rng(seed);
   const news: LifecycleNews = { user: [] };
   const used = new Set([user, ...opponents].flatMap(t => t.players.map(p => p.name)));
@@ -55,7 +59,8 @@ export function seasonLifecycle(user: Team, opponents: Team[], academy: Academy,
         continue;
       }
       const before = playerOverall(p);
-      applyGrowth(p, growthFor(p, rng), rng);
+      const g = growthFor(p, rng);
+      applyGrowth(p, t.isUser ? (g > 0 ? 0 : g * userDecline) : g, rng);
       const after = playerOverall(p);
       if (t.isUser && Math.abs(after - before) >= 4) news.user.push(`${p.name} ${after > before ? 'improved' : 'declined'} over the summer (${before} → ${after}).`);
       p.wage = Math.max(p.wage, Math.round(wageFor(p) * 0.9 / 500) * 500);

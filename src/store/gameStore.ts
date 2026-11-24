@@ -10,10 +10,13 @@ import { DEFAULT_AUTOPAUSE } from '../engine/constants.ts';
 import { computeTable, newSeason, positionOf } from '../league/schedule.ts';
 import { archiveSeason, describeRound, processRound, startNextSeason } from '../league/condition.ts';
 import { notify } from '../lib/alerts.ts';
+import { Rng } from '../engine/rng.ts';
+import { FACILITY_COST, MAX_FACILITIES, MAX_INDIVIDUAL, applyTraining, declineFactor, defaultTraining } from '../club/training.ts';
+import type { IndividualFocus, TrainingState } from '../types/club.ts';
 import { migrateCareer, needsMigration } from '../league/migrate.ts';
 import { simulateFixtures } from '../league/leagueBridge.ts';
 import type { LeagueSimJob } from '../league/leagueProtocol.ts';
-import { applyRoundFinances, expectedPosition, initialFinances, seasonEndFinances } from '../club/economy.ts';
+import { addLedger, applyRoundFinances, expectedPosition, formatMoney, initialFinances, seasonEndFinances } from '../club/economy.ts';
 import { seasonLifecycle, youthIntake } from '../club/development.ts';
 import { MAX_SQUAD, bidsFor, freeAgentPool, sellPlayer, signPlayer, type Bid, type MarketEntry } from '../club/transfers.ts';
 import { resolveDilemma, rollDilemma, describeDilemma } from '../club/dilemmas.ts';
@@ -59,6 +62,9 @@ interface GameState {
   promoteProspect: (id: string) => Promise<string>;
   releaseProspect: (id: string) => Promise<void>;
   answerDilemma: (choice: 0 | 1) => Promise<string>;
+  setTraining: (patch: Partial<Pick<TrainingState, 'intensity' | 'focus'>>) => Promise<void>;
+  setIndividualPlan: (playerId: string, focus: IndividualFocus | null) => Promise<string | null>;
+  upgradeFacilities: () => Promise<string>;
   exportSave: () => Promise<void>;
   importSave: (text: string) => Promise<string | null>;
 }
@@ -75,7 +81,7 @@ export const useGame = create<GameState>((set, get) => {
 
   /** Simulate every outstanding fixture of the current round (plus apply `userSummary` if given). */
   /** System notifications for everything a round produced (the live full-time whistle notifies on its own). */
-  const notifyRound = (next: CareerRecord, prev: CareerRecord, result: MatchSummary | null, simulated: boolean, extra: string[]): void => {
+  const notifyRound = (next: CareerRecord, prev: CareerRecord, result: MatchSummary | null, simulated: boolean, verdict: string): void => {
     const prefs = get().settings;
     const report = next.season.lastReport;
     const lines: string[] = [];
@@ -85,7 +91,11 @@ export const useGame = create<GameState>((set, get) => {
     } else if (report && report.news.length) {
       notify(prefs, 'club', `Squad news · round ${report.round}`, report.news.join('\n'), 'squad');
     }
-    if (next.season.finished && extra.length) notify(prefs, 'club', `Season ${next.season.number} complete`, extra[0] ?? '', 'season');
+    if (next.season.finished && verdict) notify(prefs, 'club', `Season ${next.season.number} complete`, verdict, 'season');
+    const tr = next.training.lastReport;
+    if (tr && (tr.ovrUps.length || tr.injuries.length)) {
+      notify(prefs, 'club', 'Training report', [...tr.ovrUps.map(u => `${u.name} ${u.from} → ${u.to}`), ...tr.injuries].join('\n'), 'training');
+    }
     if (next.dilemma && next.dilemma !== prev.dilemma) {
       const d = describeDilemma(next.dilemma);
       notify(prefs, 'club', `Off the pitch · ${d.title}`, d.text, 'dilemma');
@@ -133,8 +143,14 @@ export const useGame = create<GameState>((set, get) => {
           userOvr: teamOverall(c.user), oppOvr: teamOverall(opp)
         });
       }
-      let next: CareerRecord = { ...c, user: world.user, opponents: world.opponents, season: world.season, pendingFixtureId: null, finances };
-      const extraNews: string[] = [];
+      // The week's training between this round and the next
+      const trained = applyTraining(world.user, c.training, new Rng(randomSeed()), c.season.number, round);
+      let next: CareerRecord = { ...c, user: world.user, opponents: world.opponents, season: world.season, pendingFixtureId: null, finances, training: trained.training };
+      const extraNews: string[] = [
+        ...trained.report.ovrUps.map(u => `Training: ${u.name} improves to ${u.to} overall (was ${u.from}).`),
+        ...trained.report.injuries
+      ];
+      let seasonVerdict = '';
 
       if (world.season.finished) {
         const table = computeTable(allTeams(next), world.season.fixtures);
@@ -142,6 +158,7 @@ export const useGame = create<GameState>((set, get) => {
         const end = seasonEndFinances(next.finances, next.user, world.season.number, world.season.rounds, pos, table.length);
         next = { ...next, finances: end.finances };
         extraNews.push(end.verdict);
+        seasonVerdict = end.verdict;
         const arc = archiveSeason(world);
         await db.seasons.put(arc);
         set({ seasons: [arc, ...get().seasons.filter(s => s.id !== arc.id)] });
@@ -158,7 +175,7 @@ export const useGame = create<GameState>((set, get) => {
         set({ archive: [saved, ...get().archive.filter(m => m.id !== saved.id)].slice(0, 30) });
       }
       await persistCareer(next);
-      notifyRound(next, c, userResult, simulateUser, extraNews);
+      notifyRound(next, c, userResult, simulateUser, seasonVerdict);
       return userResult;
     } catch (err) {
       set({ roundError: err instanceof Error ? err.message : String(err) });
@@ -221,7 +238,8 @@ export const useGame = create<GameState>((set, get) => {
         academy: { prospects: youthIntake(1, seed ^ 0xacad, names), lastIntakeSeason: 1 },
         market: { freeAgents: freeAgentPool(seed ^ 0xfa, names), season: 1 },
         dilemma: null,
-        news: []
+        news: [],
+        training: defaultTraining()
       };
       await db.transaction('rw', [db.career, db.matches, db.live, db.seasons], async () => {
         await db.matches.clear();
@@ -294,7 +312,7 @@ export const useGame = create<GameState>((set, get) => {
       const user = structuredClone(c.user), opponents = structuredClone(c.opponents);
       const academy = structuredClone(c.academy);
       // Summer: develop, age and retire players before the new season starts
-      const life = seasonLifecycle(user, opponents, academy, randomSeed());
+      const life = seasonLifecycle(user, opponents, academy, randomSeed(), declineFactor(c.training));
       const world = startNextSeason({ user, opponents, season: c.season }, randomSeed());
       const teams = [world.user, ...world.opponents];
       for (const t of world.opponents) t.lineup = autoLineup(t);
@@ -319,6 +337,7 @@ export const useGame = create<GameState>((set, get) => {
       const next: CareerRecord = {
         ...c, user: world.user, opponents: world.opponents, season: world.season, pendingFixtureId: null,
         academy, finances, dilemma: null,
+        training: { ...c.training, loadSum: 0, loadRounds: 0, lastReport: null },
         market: { freeAgents: freeAgentPool(randomSeed(), names), season: world.season.number }
       };
       await persistCareer({ ...next, news: addNews({ ...next, season: { ...next.season, round: 2 } }, ...news) });
@@ -384,6 +403,37 @@ export const useGame = create<GameState>((set, get) => {
       const next = { ...c, user: world.user, finances: world.finances, academy: world.academy, dilemma: null };
       await persistCareer({ ...next, news: addNews(next, outcome) });
       return outcome;
+    },
+
+    setTraining: async (patch) => {
+      const c = get().career!;
+      await persistCareer({ ...c, training: { ...c.training, ...patch } });
+    },
+
+    setIndividualPlan: async (playerId, focus) => {
+      const c = get().career!;
+      const individual = { ...c.training.individual };
+      if (focus === null) delete individual[playerId];
+      else {
+        if (!individual[playerId] && Object.keys(individual).length >= MAX_INDIVIDUAL) return `Coaches can run at most ${MAX_INDIVIDUAL} personal plans — end one first.`;
+        individual[playerId] = focus;
+      }
+      await persistCareer({ ...c, training: { ...c.training, individual } });
+      return null;
+    },
+
+    upgradeFacilities: async () => {
+      const c = get().career!;
+      const level = c.training.facilities;
+      if (level >= MAX_FACILITIES) return 'The training ground is already world-class.';
+      const cost = FACILITY_COST[level - 1]!;
+      if (c.finances.balance < cost) return `Not enough money — the upgrade costs ${formatMoney(cost)}.`;
+      const finances = structuredClone(c.finances);
+      addLedger(finances, { season: c.season.number, round: Math.max(1, c.season.round - 1), label: `Training ground upgrade (level ${level + 1})`, amount: -cost, kind: 'EVENT' });
+      const next = { ...c, finances, training: { ...c.training, facilities: level + 1 } };
+      const msg = `The training ground is upgraded to level ${level + 1} (${formatMoney(cost)}).`;
+      await persistCareer({ ...next, news: addNews(next, msg) });
+      return msg;
     },
 
     exportSave: async () => downloadSave(await buildSave()),

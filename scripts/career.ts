@@ -8,6 +8,9 @@ import { seasonLifecycle, youthIntake } from '../src/club/development.ts';
 import { affordability, bidsFor, buildMarket, evaluateOffer, evaluateWage, freeAgentPool, sellPlayer, signPlayer } from '../src/club/transfers.ts';
 import { resolveDilemma, rollDilemma } from '../src/club/dilemmas.ts';
 import type { MatchSummary } from '../src/types/match.ts';
+import { applyTraining, declineFactor, defaultTraining } from '../src/club/training.ts';
+import { Rng } from '../src/engine/rng.ts';
+let training = defaultTraining();
 
 const OFF = { goal: false, redCard: false, injury: false, staminaBelow60: false, halfTime: false, subWindow65: false };
 const g = generateWorld(4242);
@@ -55,6 +58,7 @@ for (let s = 1; s <= 4; s++) {
     const opp = teams.get(home ? uf.awayId : uf.homeId)!;
     const round = world.season.round;
     world = processRound(world, sums).world;
+    training = applyTraining(world.user, training, new Rng(5000 + s * 100 + world.season.round), s, world.season.round).training;
     world.user.lineup = autoLineup(world.user);
     finances = applyRoundFinances(finances, world.user, { season: s, round, home, scored: home ? sm.home.score : sm.away.score, conceded: home ? sm.away.score : sm.home.score, userOvr: teamOverall(world.user), oppOvr: teamOverall(opp) });
     const d = rollDilemma({ user: world.user, finances, academy, season: world.season });
@@ -66,7 +70,8 @@ for (let s = 1; s <= 4; s++) {
   finances = end.finances;
   console.log(`Season ${s}: ${pos}th (expected ${finances.expectedPosition}) | balance ${formatMoney(finances.balance)} | board ${finances.boardConfidence.toFixed(0)} | next budget ${formatMoney(finances.transferBudget)} | wages ${formatMoney(wageBill(world.user))}/wk of ${formatMoney(finances.wageBudget)} | user OVR ${teamOverall(world.user)} | league OVR ${leagueOvr()} | squad ${world.user.players.length} | ${end.verdict}`);
 
-  const life = seasonLifecycle(world.user, world.opponents, academy, 900 + s);
+  const life = seasonLifecycle(world.user, world.opponents, academy, 900 + s, declineFactor(training));
+  training = { ...training, loadSum: 0, loadRounds: 0 };
   world = startNextSeason(world, 77 + s);
   for (const t of world.opponents) t.lineup = autoLineup(t);
   world.user.lineup = repairLineup(world.user);

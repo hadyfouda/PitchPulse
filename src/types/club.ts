@@ -50,3 +50,38 @@ export interface ClubNews {
   round: number;
   text: string;
 }
+
+export type TrainingIntensity = 'LIGHT' | 'NORMAL' | 'INTENSE';
+export type TeamTrainingFocus = 'BALANCED' | 'ATTACK' | 'DEFENCE' | 'PHYSICAL' | 'MATCH_PREP';
+export type IndividualFocus = 'POSITION' | 'FINISHING' | 'PLAYMAKING' | 'DEFENDING' | 'PHYSICAL' | 'GOALKEEPING';
+
+export interface TrainingGain {
+  playerId: string;
+  name: string;
+  attr: string;
+  value: number;
+}
+
+export interface TrainingReport {
+  season: number;
+  round: number;
+  gains: TrainingGain[];
+  /** Overall rating rises this round. */
+  ovrUps: Array<{ playerId: string; name: string; from: number; to: number }>;
+  injuries: string[];
+}
+
+export interface TrainingState {
+  intensity: TrainingIntensity;
+  focus: TeamTrainingFocus;
+  /** Up to MAX_INDIVIDUAL players on a personal plan. */
+  individual: Record<string, IndividualFocus>;
+  /** Fractional progress per player per attribute (a full point is applied as soon as it reaches 1). */
+  progress: Record<string, Record<string, number>>;
+  /** Training ground level 1–5. */
+  facilities: number;
+  /** Sum of each round's training load this season (drives how well veterans hold their level over the summer). */
+  loadSum: number;
+  loadRounds: number;
+  lastReport: TrainingReport | null;
+}

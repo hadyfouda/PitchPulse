@@ -19,10 +19,11 @@ import { TransfersTab } from './TransfersTab.tsx';
 import { AcademyTab } from './AcademyTab.tsx';
 import { ClubTab, boardMood } from './ClubTab.tsx';
 import { DilemmaCard } from './DilemmaCard.tsx';
+import { TrainingTab } from './TrainingTab.tsx';
 import { formatMoney } from '../../club/economy.ts';
 import { MobileNav, NavIcons, mobileSection } from '../ui/MobileNav.tsx';
 
-type Tab = 'MATCH' | 'TABLE' | 'LEADERS' | 'TRANSFERS' | 'ACADEMY' | 'CLUB' | 'HISTORY';
+type Tab = 'MATCH' | 'TABLE' | 'LEADERS' | 'TRAINING' | 'TRANSFERS' | 'ACADEMY' | 'CLUB' | 'HISTORY';
 type Section = 'HUB' | 'SQUAD' | 'TACTICS';
 
 export function ClubHub() {
@@ -102,12 +103,13 @@ export function ClubHub() {
         <div className={`min-w-0 space-y-3 ${mobileSection(section === 'HUB')}`}>
           <Segmented value={tab} onChange={setTab} options={[
             { value: 'MATCH', label: career.season.finished ? 'Season review' : 'Next match' }, { value: 'TABLE', label: 'League table' },
-            { value: 'LEADERS', label: 'Leaders' }, { value: 'TRANSFERS', label: 'Transfers' }, { value: 'ACADEMY', label: `Academy (${career.academy.prospects.length})` },
+            { value: 'LEADERS', label: 'Leaders' }, { value: 'TRAINING', label: 'Training' }, { value: 'TRANSFERS', label: 'Transfers' }, { value: 'ACADEMY', label: `Academy (${career.academy.prospects.length})` },
             { value: 'CLUB', label: 'Club' }, { value: 'HISTORY', label: 'History' }
           ]} />
           {tab === 'MATCH' && (career.season.finished ? <SeasonEnd /> : <NextMatch />)}
           {tab === 'TABLE' && <Panel title={`League table · after ${career.season.round - 1} of ${career.season.rounds} rounds`}><LeagueTable rows={table} userId={user.id} /></Panel>}
           {tab === 'LEADERS' && <Leaders stats={career.season.playerStats} teams={teams} userId={user.id} />}
+          {tab === 'TRAINING' && <TrainingTab />}
           {tab === 'TRANSFERS' && <TransfersTab />}
           {tab === 'ACADEMY' && <AcademyTab />}
           {tab === 'CLUB' && <ClubTab />}

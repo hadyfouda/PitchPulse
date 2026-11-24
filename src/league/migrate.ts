@@ -7,6 +7,7 @@ import { playerOverall, wageFor } from '../data/generators.ts';
 import { initialFinances } from '../club/economy.ts';
 import { youthIntake } from '../club/development.ts';
 import { freeAgentPool } from '../club/transfers.ts';
+import { defaultTraining } from '../club/training.ts';
 
 type LegacyCareer = Partial<CareerRecord> & Pick<CareerRecord, 'id' | 'seed' | 'createdAt' | 'user' | 'opponents'> & { nextOpponent?: number };
 
@@ -34,7 +35,8 @@ export function migrateCareer(raw: LegacyCareer): CareerRecord {
     academy: c.academy ?? { prospects: youthIntake(season.number, randomSeed(), names), lastIntakeSeason: season.number },
     market: c.market ?? { freeAgents: freeAgentPool(randomSeed(), names), season: season.number },
     dilemma: c.dilemma ?? null,
-    news: c.news ?? []
+    news: c.news ?? [],
+    training: c.training ?? defaultTraining()
   };
   out.academy.prospects = out.academy.prospects.map(upgradePlayer);
   out.market.freeAgents = out.market.freeAgents.map(upgradePlayer);
@@ -42,5 +44,5 @@ export function migrateCareer(raw: LegacyCareer): CareerRecord {
 }
 
 export const needsMigration = (raw: LegacyCareer): boolean =>
-  !raw.season || !raw.finances || !raw.academy || !raw.market || raw.news === undefined ||
+  !raw.season || !raw.finances || !raw.academy || !raw.market || raw.news === undefined || !raw.training ||
   [raw.user, ...raw.opponents].some(t => t.players.some(p => p.wage === undefined || p.potential === undefined));

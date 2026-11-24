@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "sim": "node --experimental-strip-types scripts/simulate.ts",
     "season": "node --experimental-strip-types scripts/season.ts",
+    "training": "node --experimental-strip-types --no-warnings scripts/training.ts",
     "career": "node --experimental-strip-types scripts/career.ts"
   },
   "dependencies": {

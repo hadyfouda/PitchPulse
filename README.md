@@ -170,6 +170,22 @@ Balance from `npm run sim` (per team per match): ~10 shots, ~4 on target, ~1.4 x
   potential, finances, academy and market are created for them).
 - Balance check: `npm run career` runs a four-season economy simulation in Node.
 
+## Training ground
+
+- **Training tab** (hub): weekly sessions run automatically between rounds.
+  - **Intensity:** Light (×0.6 development, +5 fitness a week, no training injuries) · Normal · Intense (×1.45, −4 fitness
+    a week, ~1.2% chance per player of a one-match training knock).
+  - **Team focus:** Balanced (each player works on his own position's attributes — fastest for overall), Attack,
+    Defence, Physical, or Match prep (half development, +6 sharpness and +2 morale for everyone).
+  - **Personal plans** (up to 5 players, +30%): his position, finishing, playmaking, defending, physical, goalkeeping.
+  - **Facilities** level 1–5 (+0/10/20/32/45% development), upgrades cost €3M / €5M / €8M / €12M from the balance.
+- Gains are real attribute points (shown each week), so they change match performance directly; nobody grows past
+  his potential, and young players learn fastest. Your players develop in training during the season instead of over
+  the summer; veterans don't improve but decline more slowly after a season of harder training.
+- Balance (`npm run training`): Normal intensity with level-1 facilities matches the summer growth of AI players in
+  every age band (17–19: +5.5 vs +5.2 overall per season; 20–21: +3.7 vs +3.9); Intense with level-5 facilities is about
+  +70% for under-22s, at the cost of fitness, knocks and €28M of upgrades.
+
 ## Message protocol
 
 UI → worker: `{ channel: 'UI_COMMAND', command }` where command is `INIT | RESTORE | START | PAUSE | RESUME | SET_SPEED |

@@ -112,7 +112,7 @@ export function generateSquad(rng: Rng, level: number): Player[] {
   return players;
 }
 
-const KIND_ATTRS: Record<SlotKind, AttrKey[]> = {
+export const KIND_ATTRS: Record<SlotKind, AttrKey[]> = {
   GK: ['reflexes', 'handling', 'positioning'],
   CB: ['tackling', 'positioning', 'strength'],
   LB: ['pace', 'tackling', 'stamina', 'passing'], RB: ['pace', 'tackling', 'stamina', 'passing'],
@@ -129,6 +129,12 @@ export function slotScore(p: Player, kind: SlotKind): number {
   const keys = KIND_ATTRS[kind];
   const avg = keys.reduce((s, k) => s + p.attrs[k], 0) / keys.length;
   return avg * positionFit(p.position, kind) * (0.6 + 0.4 * p.fitness / 100);
+}
+
+/** The slot kind that gives the player his overall (his best position). */
+export function bestKind(p: Player): SlotKind {
+  const kinds = (Object.keys(KIND_ATTRS) as SlotKind[]).filter(k => KIND_POSITION[k] === p.position);
+  return kinds.reduce((a, b) => (slotScore({ ...p, fitness: 100 }, b) > slotScore({ ...p, fitness: 100 }, a) ? b : a));
 }
 
 export function playerOverall(p: Player): number {
