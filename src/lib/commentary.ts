@@ -64,6 +64,11 @@ export function describe(e: MatchEvent, teams: Record<Side, string>): Commentary
     case 'HALF_TIME': return { text: `Half-time. ${m.home}–${m.away}.`, tone: 'period' };
     case 'SECOND_HALF': return { text: `The second half is underway.`, tone: 'period' };
     case 'FULL_TIME': return { text: `Full-time! ${m.home}–${m.away}.`, tone: 'period' };
+    case 'EXTRA_TIME': return { text: `Level at ${m.home}–${m.away} after 90 minutes — we're going to extra time!`, tone: 'period' };
+    case 'ET_HALF_TIME': return { text: `Half-time in extra time. ${m.home}–${m.away}.`, tone: 'period' };
+    case 'ET_SECOND_HALF': return { text: `The second half of extra time is underway.`, tone: 'period' };
+    case 'SHOOTOUT_KICK': return { text: m.scored === 1 ? `Penalty shootout: ${who} (${team}) scores. ${m.home}–${m.away}` : `Penalty shootout: ${who} (${team}) MISSES! ${m.home}–${m.away}`, tone: m.scored === 1 ? 'goal' : 'red' };
+    case 'SHOOTOUT_END': return { text: `${team} win the penalty shootout ${Math.max(Number(m.home), Number(m.away))}–${Math.min(Number(m.home), Number(m.away))}!`, tone: 'goal' };
     case 'ATTACK': return { text: m.dribble === 1 ? `${who} dribbles into the final third ${LANE[Number(m.lane)] ?? ''}.` : `${team} work it into the final third ${LANE[Number(m.lane)] ?? ''} through ${who}.`, tone: 'muted' };
     case 'COUNTER': return { text: m.fromCorner === 1 ? `${team} clear the corner and break at speed!` : `${who} wins it and ${team} break forward quickly!`, tone: 'muted' };
     case 'TURNOVER': return { text: m.high === 1 ? `${who} presses ${e.otherName ?? 'the defender'} into a mistake high up the pitch!` : `${team} win the ball back.`, tone: 'muted' };

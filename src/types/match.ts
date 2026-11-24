@@ -8,7 +8,8 @@ export type Third = 0 | 1 | 2;
 export type Lane = 0 | 1 | 2;
 
 export type SpeedMode = 'BG30' | 'BG15' | 'X1' | 'X2' | 'X8';
-export type MatchPeriod = 'PRE' | 'FIRST' | 'HT' | 'SECOND' | 'FT';
+/** ETB: break before extra time · ET1/ET2: extra-time halves · ETH: break between them. */
+export type MatchPeriod = 'PRE' | 'FIRST' | 'HT' | 'SECOND' | 'ETB' | 'ET1' | 'ETH' | 'ET2' | 'FT';
 export type MatchStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'FINISHED';
 
 export type PlayerStatus = 'PITCH' | 'BENCH' | 'SUBBED_OFF' | 'SENT_OFF' | 'INJURED_OFF';
@@ -104,6 +105,7 @@ export type MatchEventType =
   | 'CORNER' | 'FOUL' | 'PENALTY' | 'OFFSIDE' | 'YELLOW' | 'RED' | 'INJURY'
   | 'SUB' | 'TACTIC_CHANGE' | 'ROLE_CHANGE' | 'SHOUT' | 'SHOUT_END' | 'AI_ADAPT'
   | 'STAMINA_LOW' | 'ADDED_TIME' | 'HALF_TIME' | 'SECOND_HALF' | 'FULL_TIME'
+  | 'EXTRA_TIME' | 'ET_HALF_TIME' | 'ET_SECOND_HALF' | 'SHOOTOUT_KICK' | 'SHOOTOUT_END'
   | 'ATTACK' | 'COUNTER' | 'TURNOVER' | 'LONG_BALL';
 
 export interface MatchEvent {
@@ -171,6 +173,19 @@ export interface MatchSetup {
   userSide: Side;
   speed: SpeedMode;
   autoPause: AutoPauseTriggers;
+  /** Cup tie: level after 90' goes to extra time, then penalties. */
+  knockout?: boolean;
+  /** Second leg of a two-legged tie: goals already scored in the first leg (home/away of THIS match). Draws on aggregate go to extra time. */
+  aggregate?: { home: number; away: number };
+  /** Label shown in the UI, e.g. "Egypt Cup · Round of 16". */
+  competition?: string;
+}
+
+/** Penalty shootout result. */
+export interface ShootoutResult {
+  home: number;
+  away: number;
+  kicks: Array<{ side: Side; name: string; scored: boolean }>;
 }
 
 /** The complete, serialisable engine state. Snapshots are exactly this object. */
@@ -184,7 +199,11 @@ export interface MatchState {
   /** Ticks elapsed in the current half (10 match seconds each). */
   halfTick: number;
   period: MatchPeriod;
-  added: { first: number; second: number };
+  added: { first: number; second: number; et1?: number; et2?: number };
+  knockout?: boolean;
+  aggregate?: { home: number; away: number };
+  competition?: string;
+  shootout?: ShootoutResult | null;
   status: MatchStatus;
   pauseReason: PauseReason | null;
   speed: SpeedMode;
@@ -283,6 +302,10 @@ export interface EngineTick {
   /** Momentum index where the second half starts (null during the first half). */
   halfTimeIndex: number | null;
   setPiece: MatchState['setPiece'];
+  knockout?: boolean;
+  aggregate?: { home: number; away: number };
+  competition?: string;
+  shootout?: ShootoutResult | null;
 }
 
 export interface PlayerSummary extends PlayerView {
@@ -301,6 +324,12 @@ export interface MatchSummary {
   shots: ShotRecord[];
   momentum: number[];
   halfTimeIndex?: number;
+  extraTime?: boolean;
+  shootout?: ShootoutResult | null;
+  competition?: string;
+  aggregate?: { home: number; away: number };
+  /** Side that went through (knockout ties only). */
+  winner?: Side | null;
 }
 
 export interface SummaryTeam {

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { SpeedMode } from '../../types/match.ts';
 import type { Tactics } from '../../types/tactics.ts';
 import { useGame } from '../../store/gameStore.ts';
@@ -17,16 +18,26 @@ export function NextMatch() {
   const settings = useGame(s => s.settings);
   const setSettings = useGame(s => s.setSettings);
   const fixture = useGame(s => s.nextFixture());
+  // nextCupTie builds a new object per call, so derive it from the career rather than selecting it
+  const cup = useMemo(() => useGame.getState().nextCupTie(), [career]);
   const teamById = useGame(s => s.teamById);
   const update = useGame(s => s.updateUserTeam);
   const resumable = useGame(s => s.resumable);
   const busy = useGame(s => s.roundBusy);
   const roundError = useGame(s => s.roundError);
   const user = career.user;
-  if (!fixture) return null;
+  const match = cup ? { homeId: cup.tie.homeId, awayId: cup.tie.awayId } : fixture;
+  if (!match) {
+    return (
+      <Panel title="Cup round in progress">
+        <p className="py-3 text-sm text-zinc-400">{busy ? 'Playing the other cup ties…' : 'Waiting for the cup round to finish…'}</p>
+        {roundError && <p className="text-xs text-rose-400">Simulation failed: {roundError}</p>}
+      </Panel>
+    );
+  }
 
-  const home = fixture.homeId === user.id;
-  const opp = teamById(home ? fixture.awayId : fixture.homeId)!;
+  const home = match.homeId === user.id;
+  const opp = teamById(home ? match.awayId : match.homeId)!;
   const teams = [user, ...career.opponents];
   const report = scoutReport(opp, teams, career.season);
   const issues = lineupIssues(user);
@@ -47,10 +58,17 @@ export function NextMatch() {
 
   return (
     <div className="space-y-3">
-      <Panel title={`Season ${career.season.number} · Round ${fixture.round} of ${career.season.rounds}`}>
+      <Panel title={cup ? `Season ${career.season.number} · ${cup.label}` : `Season ${career.season.number} · Round ${fixture!.round} of ${career.season.rounds}`}>
+        {cup && (
+          <div className="mb-1 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-200">
+            <span>🏆 {cup.label}</span>
+            {cup.tie.knockout && <span className="text-amber-300/70">· Knockout: extra time and penalties if level</span>}
+            {!cup.tie.knockout && <span className="text-amber-300/70">· Group match</span>}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-4 py-2">
           <Badge name={home ? user.name : opp.name} short={home ? user.shortName : opp.shortName} color={home ? user.colors.primary : opp.colors.primary} ovr={teamOverall(home ? user : opp)} />
-          <div className="text-center"><div className="text-[11px] text-zinc-500">{home ? 'Home' : 'Away'}</div><div className="text-2xl font-light text-zinc-600">vs</div></div>
+          <div className="text-center"><div className="text-[11px] text-zinc-500">{cup?.tie.neutral ? 'Neutral' : home ? 'Home' : 'Away'}</div><div className="text-2xl font-light text-zinc-600">vs</div></div>
           <Badge name={home ? opp.name : user.name} short={home ? opp.shortName : user.shortName} color={home ? opp.colors.primary : user.colors.primary} ovr={teamOverall(home ? opp : user)} right />
         </div>
 
@@ -80,7 +98,7 @@ export function NextMatch() {
       <Panel title={`Scout report · ${opp.name}`}>
         <div className="grid gap-3 sm:grid-cols-3">
           <Fact label="Style" value={report.style} />
-          <Fact label="League position" value={report.position} />
+          <Fact label="League position" value={career.cups?.guests.some(g => g.id === opp.id) ? 'Lower division side' : report.position} />
           <div><div className="text-[11px] text-zinc-500">Form</div><div className="mt-1">{report.form.length ? <FormDots form={report.form} /> : <span className="text-sm text-zinc-400">—</span>}</div></div>
           <Fact label="Usual shape" value={report.shape} wrap />
           <Fact wrap label="Scored / conceded" value={report.goalsFor || report.goalsAgainst ? `${report.goalsFor.toFixed(1)} / ${report.goalsAgainst.toFixed(1)} per game` : '—'} />

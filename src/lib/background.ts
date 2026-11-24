@@ -60,12 +60,12 @@ export const backgroundMode = {
   /** Keep the lock-screen scoreboard current (only touches it when the score, minute or status changes). */
   update(v: EngineTick): void {
     if (!audio || !('mediaSession' in navigator)) return;
-    const running = v.status === 'RUNNING' && (v.period === 'FIRST' || v.period === 'SECOND');
-    const status = v.period === 'HT' ? 'Half-time' : v.status === 'FINISHED' || v.period === 'FT' ? 'Full-time' : v.status === 'PAUSED' ? 'Paused' : 'Live';
+    const running = v.status === 'RUNNING' && (v.period === 'FIRST' || v.period === 'SECOND' || v.period === 'ET1' || v.period === 'ET2');
+    const status = v.period === 'HT' ? 'Half-time' : v.period === 'ETB' || v.period === 'ETH' ? 'Extra time' : v.status === 'FINISHED' || v.period === 'FT' ? 'Full-time' : v.status === 'PAUSED' ? 'Paused' : 'Live';
     const key = `${v.home.score}-${v.away.score}-${Math.floor(v.clockSeconds / 60)}-${status}-${v.speed}`;
     if (key === lastKey) return;
     lastKey = key;
-    const halfEnd = v.period === 'FIRST' ? 45 * 60 : 90 * 60;
+    const halfEnd = v.period === 'FIRST' ? 45 * 60 : v.period === 'ET1' ? 105 * 60 : v.period === 'ET2' || (v.period === 'FT' && v.clockSeconds > 90 * 60) ? 120 * 60 : 90 * 60;
     const minute = v.period === 'PRE' ? "0'" : v.period === 'HT' ? "45'" : v.clockSeconds >= halfEnd
       ? `${halfEnd / 60}+${Math.floor((v.clockSeconds - halfEnd) / 60) + 1}'` : `${Math.floor(v.clockSeconds / 60) + 1}'`;
     navigator.mediaSession.metadata = new MediaMetadata({

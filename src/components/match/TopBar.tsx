@@ -41,7 +41,7 @@ export function PlayPause({ v }: { v: EngineTick }) {
   return (
     <button className={`btn min-w-[5.5rem] ${running ? '' : 'btn-primary'}`} onClick={() => (running ? engine.pause() : engine.resume())}
       disabled={v.status === 'FINISHED'} title="Space">
-      {running ? '❚❚ Pause' : v.period === 'HT' ? '▶ 2nd half' : '▶ Resume'}
+      {running ? '❚❚ Pause' : v.period === 'HT' ? '▶ 2nd half' : v.period === 'ETB' ? '▶ Extra time' : v.period === 'ETH' ? '▶ ET 2nd half' : '▶ Resume'}
     </button>
   );
 }

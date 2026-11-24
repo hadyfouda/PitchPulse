@@ -15,7 +15,8 @@ ctx.onmessage = (e: MessageEvent<LeagueSimRequest>) => {
     const results = jobs.map(job => {
       const engine = MatchEngine.fromSetup({
         matchId: job.matchId, seed: job.seed, home: job.home, away: job.away,
-        userSide: 'home', speed: 'X8', autoPause: OFF
+        userSide: 'home', speed: 'X8', autoPause: OFF,
+        knockout: job.knockout, aggregate: job.aggregate, competition: job.competition
       });
       engine.start();
       let guard = 0;

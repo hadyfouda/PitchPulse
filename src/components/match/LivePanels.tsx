@@ -100,7 +100,7 @@ export function PauseBanner({ v }: { v: EngineTick }) {
         <div className="text-sm text-amber-50">{alert.message}</div>
         <div className="text-[11px] text-amber-200/70">Make your changes — tactics apply on the next tick, substitutions at the next stoppage.</div>
       </div>
-      <button className="btn btn-primary" onClick={engine.resume}>{v.period === 'HT' ? 'Start 2nd half' : 'Resume'}</button>
+      <button className="btn btn-primary" onClick={engine.resume}>{v.period === 'HT' ? 'Start 2nd half' : v.period === 'ETB' ? 'Start extra time' : v.period === 'ETH' ? 'Start 2nd half of ET' : 'Resume'}</button>
     </div>
   );
 }

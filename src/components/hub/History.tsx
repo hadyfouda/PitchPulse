@@ -5,26 +5,36 @@ import { Panel } from '../ui/controls.tsx';
 import { LeagueTable } from './LeagueTable.tsx';
 import { useState } from 'react';
 
+const NO_HONOURS: never[] = [];
+
 export function History() {
   const archive = useGame(s => s.archive);
   const seasons = useGame(s => s.seasons);
+  const honours = useGame(s => s.career?.cups?.honours) ?? NO_HONOURS;
   const [open, setOpen] = useState<number | null>(null);
 
   return (
     <div className="space-y-3">
+      {honours.length > 0 && (
+        <Panel title={`Trophy cabinet · ${honours.length}`}>
+          <ul className="flex flex-wrap gap-2">
+            {honours.map((h, i) => <li key={i} className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1 text-[13px] text-amber-200">🏆 {h.name} <span className="text-amber-300/60">S{h.season}</span></li>)}
+          </ul>
+        </Panel>
+      )}
       <Panel title="Recent results · tap to analyse">
         {archive.length === 0 ? <p className="text-sm text-zinc-500">No matches played yet.</p> : (
           <ul className="divide-y divide-zinc-800/70">
             {archive.slice(0, 15).map(m => {
               const us = m.userSide === 'home' ? m.home : m.away;
               const them = m.userSide === 'home' ? m.away : m.home;
-              const res = us.score > them.score ? 'W' : us.score < them.score ? 'L' : 'D';
+              const res = m.winner ? (m.winner === m.userSide ? 'W' : 'L') : us.score > them.score ? 'W' : us.score < them.score ? 'L' : 'D';
               return (
                 <li key={m.id}>
                   <button className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-1.5 text-left text-sm hover:bg-zinc-800/50"
                     onClick={() => { useMatch.getState().setSummary(m, true); useGame.getState().setScreen('fulltime'); }} title="Open in the Analytics Room">
                     <span className={`grid h-5 w-5 place-items-center rounded text-[10px] font-bold ${res === 'W' ? 'bg-emerald-600/80' : res === 'L' ? 'bg-rose-600/80' : 'bg-zinc-600'}`}>{res}</span>
-                    <span className="flex-1 truncate text-zinc-300">{m.home.shortName} {m.home.score}–{m.away.score} {m.away.shortName}</span>
+                    <span className="flex-1 truncate text-zinc-300">{m.home.shortName} {m.home.score}–{m.away.score} {m.away.shortName}{m.shootout ? ` (${m.shootout.home}–${m.shootout.away} p)` : m.extraTime ? ' AET' : ''}{m.competition ? <span className="ml-1 text-[11px] text-amber-300/70">· {m.competition.split(' · ')[0]}</span> : null}</span>
                     <span className="tabular text-xs text-zinc-500">xG {us.stats.xg.toFixed(2)}–{them.stats.xg.toFixed(2)}</span>
                     <span className="text-xs text-zinc-600">›</span>
                   </button>

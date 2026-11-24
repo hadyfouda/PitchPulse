@@ -9,7 +9,7 @@ import type { Team } from '../types/domain.ts';
 import type {
   AutoPauseTriggers, EngineTick, Lane, LivePlayer, MatchEvent, MatchEventType, MatchSetup, MatchState,
   MatchSummary, PauseReason, PitchDot, PitchPositions, PlayerMatchStats, PlayerSummary, PlayerView, QueuedAction, QueuedActionBody, ShotOutcome,
-  ShotType, Side, SpeedMode, TeamMatchState, TeamStats, TeamView, Third
+  ShootoutResult, ShotType, Side, SpeedMode, TeamMatchState, TeamStats, TeamView, Third
 } from '../types/match.ts';
 import type { ShoutType, Tactics } from '../types/tactics.ts';
 import { Rng } from './rng.ts';
@@ -39,6 +39,8 @@ const THIRD_Y = [1 / 6, 0.5, 5 / 6] as const;
 const LANE_X = [1 / 6, 0.5, 5 / 6] as const;
 const other = (s: Side): Side => (s === 'home' ? 'away' : 'home');
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+const ET_HALF_TICKS = 15 * TICKS_PER_MINUTE;
+const PLAYING = new Set(['FIRST', 'SECOND', 'ET1', 'ET2']);
 const flip = (v: Third | Lane): Third => (2 - v) as Third;
 
 const NON_KEY: ReadonlySet<MatchEventType> = new Set(['ATTACK', 'TURNOVER', 'LONG_BALL', 'FOUL', 'CORNER', 'OFFSIDE', 'COUNTER', 'SHOUT_END']);
@@ -98,7 +100,8 @@ export class MatchEngine {
       speed: setup.speed, home: buildTeamState(setup.home, 'home'), away: buildTeamState(setup.away, 'away'),
       possession: 'home', ball: { third: 1, lane: 1 }, carrierId: null, counterTicks: 0, setPiece: null,
       stoppage: false, ticksSinceStoppage: 0, events: [], nextEventId: 1, shots: [], momentum: [], queue: [],
-      nextActionId: 1, autoPause: { ...setup.autoPause }, subWindowFired: false, lastNarrationTick: -10, startedAt: 0
+      nextActionId: 1, autoPause: { ...setup.autoPause }, subWindowFired: false, lastNarrationTick: -10, startedAt: 0,
+      knockout: setup.knockout ?? false, aggregate: setup.aggregate, competition: setup.competition, shootout: null
     };
     return new MatchEngine(state);
   }
@@ -175,7 +178,7 @@ export class MatchEngine {
     const s = this.state;
     const t = this.team(side);
     this.pending = [];
-    if (s.period !== 'FIRST' && s.period !== 'SECOND') return [];
+    if (!PLAYING.has(s.period)) return [];
     if (s.tick < t.shout.cooldownUntil) return [];
     t.shout = { active: shout, activeUntil: s.tick + SHOUT_DURATION_TICKS, cooldownUntil: s.tick + SHOUT_COOLDOWN_TICKS };
     if (shout === 'DEMAND_MORE') t.morale = Math.min(100, t.morale + 5);
@@ -193,6 +196,10 @@ export class MatchEngine {
 
     if (s.period === 'HT') {
       this.startSecondHalf();
+      return this.finishStep(false);
+    }
+    if (s.period === 'ETB' || s.period === 'ETH') {
+      this.startExtraHalf(s.period === 'ETB' ? 'ET1' : 'ET2');
       return this.finishStep(false);
     }
 
@@ -243,14 +250,18 @@ export class MatchEngine {
     const s = this.state;
     if (s.period === 'PRE') return { minute: 0, added: 0 };
     if (s.period === 'HT') return { minute: 45, added: s.added.first };
-    if (s.period === 'FT') return { minute: 90, added: s.added.second };
+    if (s.period === 'ETB') return { minute: 90, added: s.added.second };
+    if (s.period === 'ETH') return { minute: 105, added: s.added.et1 ?? 0 };
+    if (s.period === 'FT') return s.added.et2 !== undefined ? { minute: 120, added: s.added.et2 } : { minute: 90, added: s.added.second };
     const m = Math.max(1, Math.ceil(s.halfTick / TICKS_PER_MINUTE));
-    const base = s.period === 'SECOND' ? 45 : 0;
-    return m > 45 ? { minute: base + 45, added: m - 45 } : { minute: base + m, added: 0 };
+    const base = s.period === 'SECOND' ? 45 : s.period === 'ET1' ? 90 : s.period === 'ET2' ? 105 : 0;
+    const len = s.period === 'ET1' || s.period === 'ET2' ? 15 : 45;
+    return m > len ? { minute: base + len, added: m - len } : { minute: base + m, added: 0 };
   }
 
   private checkPeriodEnd(): boolean {
     const s = this.state;
+    if (s.period === 'ET1' || s.period === 'ET2') return this.checkExtraEnd();
     const half = s.period === 'FIRST' ? 'first' : 'second';
     if (s.halfTick === HALF_TICKS) {
       const start = s.tick - s.halfTick;
@@ -262,10 +273,110 @@ export class MatchEngine {
     }
     if (s.halfTick >= HALF_TICKS + s.added[half] * TICKS_PER_MINUTE) {
       if (s.period === 'FIRST') { this.endFirstHalf(); return false; }
+      if (this.tiedAfterNormalTime()) { this.goToExtraTime(); return false; }
       this.endMatch();
       return true;
     }
     return false;
+  }
+
+  /** Level on the day (or on aggregate in a second leg). */
+  private tiedAfterNormalTime(): boolean {
+    const s = this.state;
+    if (!s.knockout) return false;
+    const agg = s.aggregate ?? { home: 0, away: 0 };
+    return s.home.score + agg.home === s.away.score + agg.away;
+  }
+
+  private goToExtraTime(): void {
+    const s = this.state;
+    s.period = 'ETB';
+    s.setPiece = null;
+    s.counterTicks = 0;
+    for (const t of [s.home, s.away]) for (const p of t.players) if (p.status === 'PITCH') p.stamina = Math.min(100, p.stamina + 5);
+    this.updateRatings();
+    this.emit('EXTRA_TIME', { meta: { home: s.home.score, away: s.away.score } });
+    this.requestPause('HALF_TIME', `Level after 90 minutes (${s.home.shortName} ${s.home.score}–${s.away.score} ${s.away.shortName}) — extra time`);
+  }
+
+  private startExtraHalf(period: 'ET1' | 'ET2'): void {
+    const s = this.state;
+    s.period = period;
+    s.halfTick = 0;
+    s.possession = period === 'ET1' ? 'home' : 'away';
+    s.ball = { third: 1, lane: 1 };
+    this.applyInstantActions();
+    this.applySubs();
+    s.stoppage = false;
+    s.ticksSinceStoppage = 0;
+    this.emit(period === 'ET1' ? 'KICK_OFF' : 'ET_SECOND_HALF', { side: s.possession, meta: { et: 1 } });
+  }
+
+  private checkExtraEnd(): boolean {
+    const s = this.state;
+    const key = s.period === 'ET1' ? 'et1' : 'et2';
+    if (s.halfTick === ET_HALF_TICKS) {
+      s.added[key] = this.rng.next() < 0.5 ? 1 : 2;
+      this.emit('ADDED_TIME', { meta: { added: s.added[key]! } });
+    }
+    if (s.halfTick >= ET_HALF_TICKS + (s.added[key] ?? 0) * TICKS_PER_MINUTE) {
+      if (s.period === 'ET1') {
+        s.period = 'ETH';
+        s.setPiece = null;
+        this.updateRatings();
+        this.emit('ET_HALF_TIME', { meta: { home: s.home.score, away: s.away.score } });
+        return false;
+      }
+      if (this.tiedAfterNormalTime()) this.shootout();
+      this.endMatch();
+      return true;
+    }
+    return false;
+  }
+
+  /** Five kicks each, then sudden death. Takers by finishing + composure, keeper by reflexes. */
+  private shootout(): void {
+    const s = this.state;
+    const takers = (t: TeamMatchState): LivePlayer[] => {
+      const on = t.players.filter(p => p.status === 'PITCH');
+      return [...on].sort((a, b) => (b.attrs.finishing + b.attrs.composure) - (a.attrs.finishing + a.attrs.composure));
+    };
+    const keeper = (t: TeamMatchState): LivePlayer | undefined => t.players.find(p => p.status === 'PITCH' && p.position === 'GK');
+    const order = { home: takers(s.home), away: takers(s.away) };
+    const res: ShootoutResult = { home: 0, away: 0, kicks: [] };
+    const kick = (side: Side, n: number): void => {
+      const list = order[side];
+      if (!list.length) return;
+      const taker = list[n % list.length]!;
+      const gk = keeper(side === 'home' ? s.away : s.home);
+      const skill = (taker.attrs.finishing + taker.attrs.composure) / 2;
+      const p = clamp(0.76 + (skill - 70) * 0.004 - ((gk?.attrs.reflexes ?? 60) - 70) * 0.003, 0.6, 0.9);
+      const scored = this.rng.next() < p;
+      if (scored) res[side]++;
+      res.kicks.push({ side, name: taker.name, scored });
+      this.emit('SHOOTOUT_KICK', { side, playerId: taker.id, playerName: taker.name, meta: { scored: scored ? 1 : 0, home: res.home, away: res.away } });
+    };
+    for (let i = 0; i < 5; i++) {
+      kick('home', i);
+      if (res.home > res.away + (5 - i)) break;
+      kick('away', i);
+      const left = 4 - i;
+      if (res.home > res.away + left || res.away > res.home + left) break;
+    }
+    for (let i = 5; res.home === res.away && i < 40; i++) { kick('home', i); kick('away', i); }
+    s.shootout = res;
+    this.emit('SHOOTOUT_END', { side: res.home > res.away ? 'home' : 'away', meta: { home: res.home, away: res.away } });
+  }
+
+  /** Which side went through (knockout only). */
+  private winnerSide(): Side | null {
+    const s = this.state;
+    if (!s.knockout) return null;
+    const agg = s.aggregate ?? { home: 0, away: 0 };
+    const h = s.home.score + agg.home, a = s.away.score + agg.away;
+    if (h !== a) return h > a ? 'home' : 'away';
+    if (s.shootout) return s.shootout.home > s.shootout.away ? 'home' : 'away';
+    return null;
   }
 
   private endFirstHalf(): void {
@@ -651,7 +762,7 @@ export class MatchEngine {
     const home = dots(s.home), away = dots(s.away);
     let ball: { x: number; y: number };
     const poss = this.team(s.possession);
-    if (s.period === 'PRE' || s.period === 'HT' || s.period === 'FT') ball = { x: 0.5, y: 0.5 };
+    if (!PLAYING.has(s.period)) ball = { x: 0.5, y: 0.5 };
     else if (shotNow) ball = shotAbs(shotNow);
     else if (s.setPiece === 'CORNER') ball = this.toAbs(poss.side, { x: s.ball.lane === 0 ? 0.01 : 0.99, y: 0.99 });
     else if (s.setPiece === 'PENALTY') ball = this.toAbs(poss.side, { x: 0.5, y: 0.895 });
@@ -1118,16 +1229,23 @@ export class MatchEngine {
     if (s.period === 'FIRST') clockSeconds = (s.halfTick + frac) * SECONDS_PER_TICK;
     else if (s.period === 'HT') clockSeconds = 45 * 60;
     else if (s.period === 'SECOND') clockSeconds = 45 * 60 + (s.halfTick + frac) * SECONDS_PER_TICK;
-    else if (s.period === 'FT') clockSeconds = 90 * 60;
-    const half = s.period === 'SECOND' || s.period === 'FT' ? s.added.second : s.added.first;
+    else if (s.period === 'ETB') clockSeconds = 90 * 60;
+    else if (s.period === 'ET1') clockSeconds = 90 * 60 + (s.halfTick + frac) * SECONDS_PER_TICK;
+    else if (s.period === 'ETH') clockSeconds = 105 * 60;
+    else if (s.period === 'ET2') clockSeconds = 105 * 60 + (s.halfTick + frac) * SECONDS_PER_TICK;
+    else if (s.period === 'FT') clockSeconds = s.added.et2 !== undefined ? 120 * 60 : 90 * 60;
+    const half = s.period === 'ET1' || s.period === 'ETH' ? s.added.et1 ?? 0 : s.period === 'ET2' ? s.added.et2 ?? 0
+      : s.period === 'SECOND' || s.period === 'FT' || s.period === 'ETB' ? s.added.second : s.added.first;
+    const halfLen = s.period === 'ET1' || s.period === 'ET2' ? ET_HALF_TICKS : HALF_TICKS;
     return {
       matchId: s.matchId, status: s.status, period: s.period, pauseReason: s.pauseReason, speed: s.speed, tick: s.tick,
       clockSeconds: Math.round(clockSeconds), minute, added,
-      addedAnnounced: s.period === 'HT' ? s.added.first : s.halfTick >= HALF_TICKS || s.period === 'FT' ? half : 0,
+      addedAnnounced: s.period === 'HT' ? s.added.first : s.halfTick >= halfLen || s.period === 'FT' || s.period === 'ETB' || s.period === 'ETH' ? half : 0,
       possession: s.possession, ball: { ...s.ball }, home: this.teamView(s.home), away: this.teamView(s.away),
       queue: s.queue.map(a => ({ ...a })), momentum: [...s.momentum], userSide: s.userSide,
       positions: this.positions(), lastShot: s.shots[s.shots.length - 1] ?? null,
-      halfTimeIndex: s.period === 'SECOND' || s.period === 'FT' ? 45 + s.added.first : null, setPiece: s.setPiece
+      halfTimeIndex: s.period === 'FIRST' || s.period === 'HT' || s.period === 'PRE' ? null : 45 + s.added.first, setPiece: s.setPiece,
+      knockout: s.knockout, aggregate: s.aggregate, competition: s.competition, shootout: s.shootout ?? null
     };
   }
 
@@ -1149,7 +1267,9 @@ export class MatchEngine {
     };
     return {
       id: s.matchId, playedAt: Date.now(), userSide: s.userSide, home: side(s.home), away: side(s.away),
-      events: s.events.filter(e => e.key), shots: [...s.shots], momentum: [...s.momentum], halfTimeIndex: 45 + s.added.first
+      events: s.events.filter(e => e.key), shots: [...s.shots], momentum: [...s.momentum], halfTimeIndex: 45 + s.added.first,
+      extraTime: s.added.et1 !== undefined, shootout: s.shootout ?? null, competition: s.competition, aggregate: s.aggregate,
+      winner: this.winnerSide()
     };
   }
 }

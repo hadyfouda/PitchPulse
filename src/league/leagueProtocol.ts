@@ -7,6 +7,9 @@ export interface LeagueSimJob {
   seed: number;
   home: Team;
   away: Team;
+  knockout?: boolean;
+  aggregate?: { home: number; away: number };
+  competition?: string;
 }
 
 export interface LeagueSimRequest {

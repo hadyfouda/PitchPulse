@@ -13,10 +13,10 @@ export function TouchlinePanel({ v }: { v: EngineTick }) {
   const team = v.userSide === 'home' ? v.home : v.away;
   const opp = v.userSide === 'home' ? v.away : v.home;
   const pending = v.queue.find((a): a is Extract<QueuedAction, { kind: 'TACTICS' }> => a.kind === 'TACTICS' && a.side === v.userSide);
-  const live = v.period === 'FIRST' || v.period === 'SECOND' || v.period === 'HT';
+  const live = v.period !== 'PRE' && v.period !== 'FT';
   const cooldown = Math.max(0, Math.ceil((team.shout.cooldownUntil - v.tick) / TICKS_PER_MINUTE));
   const activeLeft = team.shout.active ? Math.max(0, Math.ceil((team.shout.activeUntil - v.tick) / TICKS_PER_MINUTE)) : 0;
-  const shoutsReady = cooldown === 0 && (v.period === 'FIRST' || v.period === 'SECOND');
+  const shoutsReady = cooldown === 0 && (v.period === 'FIRST' || v.period === 'SECOND' || v.period === 'ET1' || v.period === 'ET2');
 
   return (
     <div className="space-y-3">

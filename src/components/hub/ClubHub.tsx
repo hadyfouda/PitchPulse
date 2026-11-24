@@ -20,10 +20,11 @@ import { AcademyTab } from './AcademyTab.tsx';
 import { ClubTab, boardMood } from './ClubTab.tsx';
 import { DilemmaCard } from './DilemmaCard.tsx';
 import { TrainingTab } from './TrainingTab.tsx';
+import { CupsTab } from './CupsTab.tsx';
 import { formatMoney } from '../../club/economy.ts';
 import { MobileNav, NavIcons, mobileSection } from '../ui/MobileNav.tsx';
 
-type Tab = 'MATCH' | 'TABLE' | 'LEADERS' | 'TRAINING' | 'TRANSFERS' | 'ACADEMY' | 'CLUB' | 'HISTORY';
+type Tab = 'MATCH' | 'TABLE' | 'CUPS' | 'LEADERS' | 'TRAINING' | 'TRANSFERS' | 'ACADEMY' | 'CLUB' | 'HISTORY';
 type Section = 'HUB' | 'SQUAD' | 'TACTICS';
 
 export function ClubHub() {
@@ -103,11 +104,13 @@ export function ClubHub() {
         <div className={`min-w-0 space-y-3 ${mobileSection(section === 'HUB')}`}>
           <Segmented value={tab} onChange={setTab} options={[
             { value: 'MATCH', label: career.season.finished ? 'Season review' : 'Next match' }, { value: 'TABLE', label: 'League table' },
+            ...(career.cups ? [{ value: 'CUPS' as const, label: 'Cups' }] : []),
             { value: 'LEADERS', label: 'Leaders' }, { value: 'TRAINING', label: 'Training' }, { value: 'TRANSFERS', label: 'Transfers' }, { value: 'ACADEMY', label: `Academy (${career.academy.prospects.length})` },
             { value: 'CLUB', label: 'Club' }, { value: 'HISTORY', label: 'History' }
           ]} />
           {tab === 'MATCH' && (career.season.finished ? <SeasonEnd /> : <NextMatch />)}
           {tab === 'TABLE' && <Panel title={`League table · after ${career.season.round - 1} of ${career.season.rounds} rounds`}><LeagueTable rows={table} userId={user.id} /></Panel>}
+          {tab === 'CUPS' && <CupsTab />}
           {tab === 'LEADERS' && <Leaders stats={career.season.playerStats} teams={teams} userId={user.id} />}
           {tab === 'TRAINING' && <TrainingTab />}
           {tab === 'TRANSFERS' && <TransfersTab />}

@@ -184,6 +184,20 @@ Balance from `npm run sim` (per team per match): ~10 shots, ~4 on target, ~1.4 x
   reactions per match scaled to the 38-round season, squad limit 46. `npm run egypt` simulates a season;
   `EGY=ahly npm run career` runs the four-season economy check for one club.
 
+## Domestic cups
+
+Egyptian careers now play three cups alongside the league, slotted into the calendar between league rounds:
+
+- **Egyptian Super Cup** (pre-season): four clubs on a neutral ground: league champion, Egypt Cup winner, league runner-up and Egypt Cup runner-up (the league table fills any gap). Semi-finals and final.
+- **Egypt Cup**: 32 clubs (the 20 Premier League sides plus 12 lower-division guests such as Ismaily, Pharco and Tanta). Single-leg knockout, the guest hosts. Semi-finals and final on a neutral ground.
+- **League Cup**: four groups of five (top two go through), then quarter-finals, semi-finals and final.
+
+Knockout ties that are level after 90 minutes go to two 15-minute halves of extra time (with a pause before each half), then a penalty shootout (five each, then sudden death). Simulated ties use the same engine. Cup wins pay prize money and lift board confidence. Midweek cup games cost some fitness.
+
+The **Cups** tab shows every round, AET and penalty results, League Cup group tables, top scorers, winners by season and your trophies (also in *History → Trophy cabinet*). A new draw is made each season. Older Egyptian saves start the cups from their next season.
+
+`npm run cups` plays a full headless season of all three cups.
+
 ## Training ground
 
 - **Training tab** (hub): weekly sessions run automatically between rounds.

@@ -26,7 +26,7 @@ const OUTCOME_TEXT: Record<ShotRecord['outcome'], string> = { GOAL: 'GOAL!', SAV
 
 /** A "key moment" is anything worth watching in Highlights mode. */
 function isKeyMoment(v: EngineTick): boolean {
-  if (v.period !== 'FIRST' && v.period !== 'SECOND') return false;
+  if (v.period !== 'FIRST' && v.period !== 'SECOND' && v.period !== 'ET1' && v.period !== 'ET2') return false;
   if (v.setPiece) return true;
   if (v.lastShot && v.tick - v.lastShot.tick <= 2) return true;
   return v.ball.third === 2;
@@ -283,7 +283,7 @@ function draw(ctx: CanvasRenderingContext2D, W: number, H: number, v: EngineTick
       ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(212, 212, 216, 0.6)';
       ctx.font = `500 ${Math.max(12, r * 1.15)}px ui-sans-serif, system-ui, sans-serif`;
-      ctx.fillText(v.period === 'HT' ? 'Half-time' : v.status === 'FINISHED' ? 'Full-time' : 'Quiet spell — waiting for a key moment', W / 2, H / 2);
+      ctx.fillText(v.period === 'HT' ? 'Half-time' : v.period === 'ETB' ? 'Extra time next' : v.period === 'ETH' ? 'Extra-time break' : v.status === 'FINISHED' ? 'Full-time' : 'Quiet spell — waiting for a key moment', W / 2, H / 2);
     }
   }
 }

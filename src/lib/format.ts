@@ -3,8 +3,10 @@ import type { EngineTick } from '../types/match.ts';
 export function clockText(v: Pick<EngineTick, 'period' | 'clockSeconds' | 'minute' | 'added'>): string {
   if (v.period === 'PRE') return '00:00';
   if (v.period === 'HT') return 'HT';
-  if (v.period === 'FT') return 'FT';
-  const halfEnd = v.period === 'FIRST' ? 45 * 60 : 90 * 60;
+  if (v.period === 'ETB') return 'ET';
+  if (v.period === 'ETH') return 'ET HT';
+  if (v.period === 'FT') return v.clockSeconds > 90 * 60 ? 'AET' : 'FT';
+  const halfEnd = v.period === 'FIRST' ? 45 * 60 : v.period === 'SECOND' ? 90 * 60 : v.period === 'ET1' ? 105 * 60 : 120 * 60;
   if (v.clockSeconds >= halfEnd) {
     const over = v.clockSeconds - halfEnd;
     return `${halfEnd / 60}+${Math.floor(over / 60) + 1}'`;

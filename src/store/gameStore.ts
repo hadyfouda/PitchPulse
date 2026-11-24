@@ -10,6 +10,8 @@ import { DEFAULT_AUTOPAUSE } from '../engine/constants.ts';
 import { computeTable, newSeason, positionOf } from '../league/schedule.ts';
 import { archiveSeason, describeRound, processRound, startNextSeason } from '../league/condition.ts';
 import { notify } from '../lib/alerts.ts';
+import { CUP_PRIZES, CUP_SHORT, applyCupCondition, createCups, dueSlot, emptyCups, guestTeams, recordCupResults, superCupEntrants, tieLabel, tiesAtSlot } from '../club/cups.ts';
+import type { CupTie } from '../types/cups.ts';
 import { EGYPT_CLUBS, EGYPT_WAGE_FACTOR, generateEgyptWorld } from '../data/egypt/world.ts';
 import { Rng } from '../engine/rng.ts';
 import { FACILITY_COST, MAX_FACILITIES, MAX_INDIVIDUAL, applyTraining, declineFactor, defaultTraining } from '../club/training.ts';
@@ -52,6 +54,8 @@ interface GameState {
   setScreen: (s: Screen) => void;
   teamById: (id: string) => Team | undefined;
   nextFixture: () => Fixture | null;
+  /** The user's cup tie if it is the next thing in the calendar. */
+  nextCupTie: () => { tie: CupTie; label: string } | null;
   buildMatchSetup: () => MatchSetup | null;
   recordResult: (summary: MatchSummary) => Promise<void>;
   simulateUserMatch: () => Promise<MatchSummary | null>;
@@ -72,6 +76,9 @@ interface GameState {
 }
 
 const allTeams = (c: CareerRecord): Team[] => [c.user, ...c.opponents];
+/** League clubs plus the cup-only guests. */
+const everyTeam = (c: CareerRecord): Team[] => [c.user, ...c.opponents, ...(c.cups?.guests ?? [])];
+const EGY_SUPER_CUP_1 = ['pyramids', 'ahly', 'zamalek', 'ceramica'].map(id => `egy_${id}`);
 const addNews = (c: CareerRecord, ...texts: string[]): ClubNews[] =>
   [...texts.map(text => ({ season: c.season.number, round: Math.max(1, c.season.round - 1), text })), ...c.news].slice(0, NEWS_CAP);
 
@@ -179,12 +186,124 @@ export const useGame = create<GameState>((set, get) => {
       }
       await persistCareer(next);
       notifyRound(next, c, userResult, simulateUser, seasonVerdict);
+      set({ roundBusy: false });
+      await advanceCups();
       return userResult;
     } catch (err) {
       set({ roundError: err instanceof Error ? err.message : String(err) });
       return null;
     } finally {
       set({ roundBusy: false });
+    }
+  };
+
+  /** Play one cup slot (midweek). The user's tie is either watched (summary given) or simulated. */
+  const completeCupSlot = async (userSummary: MatchSummary | null, simulateUser: boolean, chain = true): Promise<MatchSummary | null> => {
+    const c = get().career;
+    if (!c?.cups) return null;
+    const slot = dueSlot(c.cups.cups, c.season.round);
+    if (slot === null) return null;
+    set({ roundBusy: true, roundError: null });
+    try {
+      const ties = tiesAtSlot(c.cups.cups, slot);
+      const userTie = ties.find(t => t.homeId === c.user.id || t.awayId === c.user.id);
+      const teams = new Map(everyTeam(c).map(t => [t.id, t]));
+      const jobs: LeagueSimJob[] = ties
+        .filter(t => t !== userTie || (!userSummary && simulateUser))
+        .map(t => ({
+          fixtureId: t.id, matchId: `${t.id}_${Date.now().toString(36)}`, seed: randomSeed(),
+          home: matchdayTeam(teams.get(t.homeId)!, true), away: matchdayTeam(teams.get(t.awayId)!, true),
+          knockout: t.knockout, competition: tieLabel(c.cups!.cups, t)
+        }));
+      const summaries = await simulateFixtures(jobs);
+      let userResult: MatchSummary | null = userSummary;
+      if (userTie && !userSummary && simulateUser) {
+        const sim = summaries.get(userTie.id);
+        if (sim) userResult = { ...sim, userSide: userTie.homeId === c.user.id ? 'home' : 'away' };
+      }
+      if (userTie && userResult) summaries.set(userTie.id, userResult);
+      if (userTie && !userResult) return null;
+
+      const cups = recordCupResults(c.cups.cups, summaries, new Rng(randomSeed()));
+      const user = structuredClone(c.user), opponents = structuredClone(c.opponents), guests = structuredClone(c.cups.guests);
+      const news = applyCupCondition([user, ...opponents, ...guests], ties, summaries);
+      const finances = structuredClone(c.finances);
+      const winners = [...c.cups.winners], honours = [...c.cups.honours];
+      const nameOf = (id: string | null): string => (id ? teams.get(id)?.name ?? '?' : '?');
+      const ledger = { season: c.season.number, round: Math.max(1, c.season.round - 1) };
+
+      if (userTie) {
+        const done = cups.flatMap(x => x.ties).find(t => t.id === userTie.id);
+        const cupState = cups.find(x => x.id === userTie.cup)!;
+        const stage = cupState.stages.find(s => s.key === userTie.stageKey);
+        if (done?.result) {
+          if (simulateUser) done.result.simulated = true;
+          const oppName = nameOf(userTie.homeId === c.user.id ? userTie.awayId : userTie.homeId);
+          const prize = CUP_PRIZES[userTie.cup];
+          const won = done.result.winnerId === c.user.id;
+          if (!userTie.knockout) {
+            const own = userTie.homeId === c.user.id ? done.result.home : done.result.away;
+            const opp = userTie.homeId === c.user.id ? done.result.away : done.result.home;
+            if (own > opp && prize.groupWin) addLedger(finances, { ...ledger, kind: 'MATCH', label: `${CUP_SHORT[userTie.cup]} group win`, amount: prize.groupWin });
+          } else if (won && stage?.key !== 'F') {
+            addLedger(finances, { ...ledger, kind: 'MATCH', label: `${CUP_SHORT[userTie.cup]} prize · ${stage?.label}`, amount: prize.tieWin });
+            news.push(`${CUP_SHORT[userTie.cup]}: through after beating ${oppName}${done.result.pens ? ' on penalties' : done.result.et ? ' after extra time' : ''}.`);
+          } else if (!won && stage?.key !== 'F') {
+            news.push(`${CUP_SHORT[userTie.cup]}: knocked out by ${oppName} in the ${stage?.label.toLowerCase()}${done.result.pens ? ' on penalties' : ''}.`);
+          }
+        }
+      }
+      // Finished cups: honours, prize money, board
+      for (const cup of cups) {
+        const before = c.cups.cups.find(x => x.id === cup.id);
+        if (!cup.winnerId || before?.winnerId) continue;
+        winners.push({ season: cup.season, cup: cup.id, winnerId: cup.winnerId, winnerName: nameOf(cup.winnerId), runnerUpName: nameOf(cup.runnerUpId) });
+        const prize = CUP_PRIZES[cup.id];
+        if (cup.winnerId === c.user.id) {
+          honours.unshift({ season: cup.season, cup: cup.id, name: cup.name });
+          addLedger(finances, { ...ledger, kind: 'MATCH', label: `${cup.name} winners`, amount: prize.winner });
+          finances.boardConfidence = Math.min(100, finances.boardConfidence + (cup.id === 'EGYPT_CUP' ? 8 : 5));
+          news.push(`🏆 ${cup.name} winners! ${user.name} beat ${nameOf(cup.runnerUpId)} in the final.`);
+        } else if (cup.runnerUpId === c.user.id) {
+          addLedger(finances, { ...ledger, kind: 'MATCH', label: `${cup.name} runners-up`, amount: prize.runnerUp });
+          news.push(`${cup.name}: beaten in the final by ${nameOf(cup.winnerId)}.`);
+        } else {
+          news.push(`${cup.name}: ${nameOf(cup.winnerId)} win the trophy.`);
+        }
+      }
+
+      let next: CareerRecord = { ...c, user, opponents, finances, pendingFixtureId: null, cups: { ...c.cups, cups, guests, winners, honours } };
+      if (news.length) next = { ...next, news: addNews(next, ...news) };
+      if (userResult) {
+        const saved = userResult;
+        await db.matches.put(saved);
+        set({ archive: [saved, ...get().archive.filter(m => m.id !== saved.id)].slice(0, 30) });
+      }
+      await persistCareer(next);
+      if (userTie && userResult && simulateUser) {
+        notify(get().settings, 'club', `${tieLabel(c.cups.cups, userTie)}`, `${userResult.home.shortName} ${userResult.home.score}–${userResult.away.score} ${userResult.away.shortName}${userResult.shootout ? ` (pens ${userResult.shootout.home}–${userResult.shootout.away})` : ''}`, 'cup');
+      }
+      set({ roundBusy: false });
+      if (chain) await advanceCups();
+      return userResult;
+    } catch (err) {
+      set({ roundError: err instanceof Error ? err.message : String(err) });
+      return null;
+    } finally {
+      set({ roundBusy: false });
+    }
+  };
+
+  /** Play every due cup slot that doesn't involve the user, so the calendar reaches the user's next match. */
+  const advanceCups = async (): Promise<void> => {
+    for (let i = 0; i < 30; i++) {
+      const c = get().career;
+      if (!c?.cups || c.season.finished) return;
+      if (dueSlot(c.cups.cups, c.season.round) === null) return;
+      if (get().nextCupTie()) return;
+      const before = c;
+      await completeCupSlot(null, false, false);
+      if (get().career === before) return; // failed — don't loop
     }
   };
 
@@ -218,6 +337,11 @@ export const useGame = create<GameState>((set, get) => {
         career = migrate ? migrateCareer(rawCareer) : rawCareer;
         if (migrate) await db.career.put(career);
         setWageScale(career.league === 'EGY' ? EGYPT_WAGE_FACTOR : 1);
+        // Egyptian careers started before the cups existed: the cups begin next season
+        if (career.league === 'EGY' && !career.cups) {
+          career = { ...career, cups: emptyCups(career.season.number, guestTeams(career.seed ^ 0x9e57)) };
+          await db.career.put(career);
+        }
       }
       const resumable = live && live.snapshot.status !== 'FINISHED' ? live.snapshot : null;
       set({
@@ -228,6 +352,7 @@ export const useGame = create<GameState>((set, get) => {
         seasons: seasons.sort((a, b) => b.id - a.id),
         resumable
       });
+      if (!resumable) void advanceCups();
     },
 
     newCareer: async (clubIndex, league = 'EGY') => {
@@ -248,6 +373,10 @@ export const useGame = create<GameState>((set, get) => {
         news: [],
         training: defaultTraining()
       };
+      if (league === 'EGY') {
+        const guests = guestTeams(seed ^ 0x9e57);
+        career.cups = { ...emptyCups(1, guests), cups: createCups(1, career.season.rounds, teams, guests, EGY_SUPER_CUP_1, seed ^ 0xc0b) };
+      }
       await db.transaction('rw', [db.career, db.matches, db.live, db.seasons], async () => {
         await db.matches.clear();
         await db.live.clear();
@@ -255,6 +384,7 @@ export const useGame = create<GameState>((set, get) => {
         await db.career.put(career);
       });
       set({ career, archive: [], seasons: [], resumable: null, screen: 'home' });
+      void advanceCups();
     },
 
     updateUserTeam: (fn) => {
@@ -271,20 +401,47 @@ export const useGame = create<GameState>((set, get) => {
 
     setScreen: (screen) => set({ screen }),
 
+    nextCupTie: () => {
+      const c = get().career;
+      if (!c?.cups || c.season.finished) return null;
+      const slot = dueSlot(c.cups.cups, c.season.round);
+      if (slot === null) return null;
+      const tie = tiesAtSlot(c.cups.cups, slot).find(t => t.homeId === c.user.id || t.awayId === c.user.id);
+      return tie ? { tie, label: tieLabel(c.cups.cups, tie) } : null;
+    },
+
     teamById: (id) => {
       const c = get().career;
-      return c ? allTeams(c).find(t => t.id === id) : undefined;
+      return c ? everyTeam(c).find(t => t.id === id) : undefined;
     },
 
     nextFixture: () => {
       const c = get().career;
       if (!c || c.season.finished) return null;
+      // A cup round comes first when it falls before the next league round
+      if (c.cups && dueSlot(c.cups.cups, c.season.round) !== null) return null;
       return c.season.fixtures.find(f => f.round === c.season.round && !f.result && (f.homeId === c.user.id || f.awayId === c.user.id)) ?? null;
     },
 
     buildMatchSetup: () => {
       const g = get();
       const c = g.career;
+      const cup = g.nextCupTie();
+      if (c && cup) {
+        const { tie } = cup;
+        const opp = g.teamById(tie.homeId === c.user.id ? tie.awayId : tie.homeId);
+        if (!opp) return null;
+        const userHome = tie.homeId === c.user.id;
+        const user = matchdayTeam(c.user, false);
+        const ai = matchdayTeam(opp, true);
+        void persistCareer({ ...c, pendingFixtureId: tie.id });
+        return {
+          matchId: `${tie.id}_${Date.now().toString(36)}`, seed: randomSeed(),
+          home: userHome ? user : ai, away: userHome ? ai : user,
+          userSide: userHome ? 'home' : 'away', speed: g.settings.defaultSpeed, autoPause: g.settings.autoPause,
+          knockout: tie.knockout, competition: cup.label
+        };
+      }
       const f = g.nextFixture();
       if (!c || !f) return null;
       const opp = g.teamById(f.homeId === c.user.id ? f.awayId : f.homeId);
@@ -307,11 +464,13 @@ export const useGame = create<GameState>((set, get) => {
       const pending = c?.pendingFixtureId;
       const isLeague = !!pending && !!c && c.season.fixtures.some(f => f.id === pending && !f.result);
       if (isLeague) { await completeRound(summary, false); return; }
+      const isCup = !!pending && !!c?.cups && c.cups.cups.some(cup => cup.ties.some(t => t.id === pending && !t.result));
+      if (isCup) { await completeCupSlot(summary, false); return; }
       await db.matches.put(summary);
       set({ archive: [summary, ...get().archive.filter(m => m.id !== summary.id)].slice(0, 30) });
     },
 
-    simulateUserMatch: () => completeRound(null, true),
+    simulateUserMatch: () => (get().nextCupTie() ? completeCupSlot(null, true) : completeRound(null, true)),
 
     beginNextSeason: async () => {
       const c = get().career;
@@ -341,13 +500,25 @@ export const useGame = create<GameState>((set, get) => {
       news.push(`${intake.length} new prospects join the academy.`);
 
       const finances = { ...c.finances, expectedPosition: expectedPosition(world.user, teams) };
+      // Cups for the new season: Super Cup from last season's league and Egypt Cup, fresh draws for the rest
+      let cups = c.cups;
+      if (cups) {
+        const oldTable = computeTable(allTeams(c), c.season.fixtures);
+        const entrants = superCupEntrants(oldTable, cups.cups.find(x => x.id === 'EGYPT_CUP'));
+        const guests = guestTeams(randomSeed());
+        const honours = [...cups.honours];
+        if (oldTable[0]?.teamId === c.user.id) honours.unshift({ season: c.season.number, cup: 'LEAGUE', name: 'Egyptian Premier League' });
+        cups = { ...cups, season: world.season.number, guests, honours, cups: createCups(world.season.number, world.season.rounds, teams, guests, entrants, randomSeed()) };
+        news.push('The new season\'s cup draws are made: Super Cup, Egypt Cup and League Cup.');
+      }
       const next: CareerRecord = {
         ...c, user: world.user, opponents: world.opponents, season: world.season, pendingFixtureId: null,
-        academy, finances, dilemma: null,
+        academy, finances, dilemma: null, cups,
         training: { ...c.training, loadSum: 0, loadRounds: 0, lastReport: null },
         market: { freeAgents: freeAgentPool(randomSeed(), names), season: world.season.number }
       };
       await persistCareer({ ...next, news: addNews({ ...next, season: { ...next.season, round: 2 } }, ...news) });
+      void advanceCups();
     },
 
     clearResumable: async () => {

@@ -3,6 +3,7 @@ import type { Team } from '../types/domain.ts';
 import type { AutoPauseTriggers, MatchState, MatchSummary, SpeedMode } from '../types/match.ts';
 import type { SeasonArchive, SeasonState } from '../types/league.ts';
 import type { Academy, ClubFinances, ClubNews, Dilemma, MarketState, TrainingState } from '../types/club.ts';
+import type { CupsRecord } from '../types/cups.ts';
 
 export interface CareerRecord {
   id: 'career';
@@ -20,6 +21,8 @@ export interface CareerRecord {
   dilemma: Dilemma | null;
   /** Club news feed: transfers, academy, dilemma outcomes, summer changes. */
   news: ClubNews[];
+  /** Domestic cups (Egyptian league only). */
+  cups?: CupsRecord;
   /** Which league the career plays in (older careers: the fictional one). */
   league?: 'EGY' | 'CLASSIC';
   /** Training ground (added after Phase 4; older careers get the default on load). */
