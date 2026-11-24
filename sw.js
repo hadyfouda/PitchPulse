@@ -3,8 +3,8 @@
  * list of emitted files, so the whole app — including the match and league workers — is available offline after the
  * first visit. Pages are network-first (updates arrive when online); everything else is cache-first.
  */
-const BUILD = 'mwuqjv0l';
-const PRECACHE = ["./","./assets/index-CYkPS9dr.css","./assets/index-D1jiaXsO.js","./assets/leagueSim.worker-CY1ayOba.js","./assets/matchEngine.worker-CFthWNd1.js","./favicon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
+const BUILD = 'mwurdxec';
+const PRECACHE = ["./","./assets/index-DVhRLjaM.js","./assets/index-Db72y93U.css","./assets/leagueSim.worker-CY1ayOba.js","./assets/matchEngine.worker-CFthWNd1.js","./favicon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
 const CACHE = `pitchpulse-${BUILD}`;
 
 self.addEventListener('install', e => {
