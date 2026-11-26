@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
 
 export interface MobileNavItem<T extends string> {
   value: T;
@@ -13,7 +13,7 @@ export interface MobileNavItem<T extends string> {
  */
 export function MobileNav<T extends string>({ items, value, onChange }: { items: MobileNavItem<T>[]; value: T; onChange: (v: T) => void }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur lg:hidden"
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-950 lg:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }} aria-label="Sections">
       <div className="mx-auto flex max-w-xl">
         {items.map(it => {
@@ -37,6 +37,15 @@ export function MobileNav<T extends string>({ items, value, onChange }: { items:
 
 /** `hidden` below lg unless this section is the active one; always visible on desktop. */
 export const mobileSection = (active: boolean): string => (active ? '' : 'hidden lg:block');
+
+const DESKTOP = '(min-width: 1024px)';
+const subscribeDesktop = (cb: () => void): (() => void) => {
+  const mq = window.matchMedia(DESKTOP);
+  mq.addEventListener('change', cb);
+  return () => mq.removeEventListener('change', cb);
+};
+/** True from the `lg` breakpoint up. Phones only mount the section on screen, so hidden ones don't re-render on every update. */
+export const useIsDesktop = (): boolean => useSyncExternalStore(subscribeDesktop, () => window.matchMedia(DESKTOP).matches, () => true);
 
 const svg = (d: ReactNode) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">{d}</svg>

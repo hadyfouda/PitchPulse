@@ -22,7 +22,7 @@ import { DilemmaCard } from './DilemmaCard.tsx';
 import { TrainingTab } from './TrainingTab.tsx';
 import { CupsTab } from './CupsTab.tsx';
 import { formatMoney } from '../../club/economy.ts';
-import { MobileNav, NavIcons, mobileSection } from '../ui/MobileNav.tsx';
+import { MobileNav, NavIcons, mobileSection, useIsDesktop } from '../ui/MobileNav.tsx';
 
 type Tab = 'MATCH' | 'TABLE' | 'CUPS' | 'LEADERS' | 'TRAINING' | 'TRANSFERS' | 'ACADEMY' | 'CLUB' | 'HISTORY';
 type Section = 'HUB' | 'SQUAD' | 'TACTICS';
@@ -34,6 +34,7 @@ export function ClubHub() {
   const clearResumable = useGame(s => s.clearResumable);
   const [tab, setTabState] = useState<Tab>('MATCH');
   const [section, setSection] = useState<Section>('HUB');
+  const desktop = useIsDesktop();
   const setTab = (t: Tab): void => { setTabState(t); setSection('HUB'); };
   const user = career.user;
   const teams = [user, ...career.opponents];
@@ -99,9 +100,9 @@ export function ClubHub() {
       <DilemmaCard />
 
       <div className="grid gap-3 lg:grid-cols-[minmax(330px,390px)_1fr_minmax(290px,330px)]">
-        <div className={`min-w-0 ${mobileSection(section === 'SQUAD')}`}><LineupEditor /></div>
+        {(desktop || section === 'SQUAD') && <div className={`min-w-0 ${mobileSection(section === 'SQUAD')}`}><LineupEditor /></div>}
 
-        <div className={`min-w-0 space-y-3 ${mobileSection(section === 'HUB')}`}>
+        {(desktop || section === 'HUB') && <div className={`min-w-0 space-y-3 ${mobileSection(section === 'HUB')}`}>
           <Segmented value={tab} onChange={setTab} options={[
             { value: 'MATCH', label: career.season.finished ? 'Season review' : 'Next match' }, { value: 'TABLE', label: 'League table' },
             ...(career.cups ? [{ value: 'CUPS' as const, label: 'Cups' }] : []),
@@ -117,12 +118,12 @@ export function ClubHub() {
           {tab === 'ACADEMY' && <AcademyTab />}
           {tab === 'CLUB' && <ClubTab />}
           {tab === 'HISTORY' && <History />}
-        </div>
+        </div>}
 
-        <div className={`space-y-3 ${mobileSection(section === 'TACTICS')}`}>
+        {(desktop || section === 'TACTICS') && <div className={`space-y-3 ${mobileSection(section === 'TACTICS')}`}>
           <Panel title="Tactics"><TacticsEditor tactics={user.tactics} onChange={setTactics} /></Panel>
           <Panel><AutoPauseSettings /></Panel>
-        </div>
+        </div>}
       </div>
 
       <MobileNav value={section} onChange={setSection} items={[

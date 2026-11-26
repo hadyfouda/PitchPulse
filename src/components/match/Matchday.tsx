@@ -9,7 +9,7 @@ import { MomentumChart } from '../analytics/MomentumChart.tsx';
 import { SquadPanel } from './SquadPanel.tsx';
 import { TouchlinePanel } from './TouchlinePanel.tsx';
 import { Panel } from '../ui/controls.tsx';
-import { MobileNav, NavIcons, mobileSection } from '../ui/MobileNav.tsx';
+import { MobileNav, NavIcons, mobileSection, useIsDesktop } from '../ui/MobileNav.tsx';
 
 export function Matchday() {
   const v = useMatch(s => s.view);
@@ -18,6 +18,7 @@ export function Matchday() {
   const error = useMatch(s => s.error);
   const feed = useMatch(s => s.feed);
   const [section, setSection] = useState<'LIVE' | 'SQUAD' | 'TOUCHLINE'>('LIVE');
+  const desktop = useIsDesktop();
 
   // Tab title doubles as a glanceable scoreboard while you work in another tab
   useEffect(() => {
@@ -65,14 +66,14 @@ export function Matchday() {
     <div className="mx-auto max-w-[1500px] px-3 pb-24 pt-3 sm:px-4 lg:pb-3" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
       {error && <div className="panel mb-3 border-rose-600/50 bg-rose-500/10 p-2 text-sm text-rose-200">Engine error: {error}</div>}
       {section !== 'LIVE' && (
-        <div className="panel sticky top-0 z-30 mb-3 flex items-center gap-3 p-2 lg:hidden">
+        <div className="panel sticky top-0 z-30 mb-3 flex items-center gap-3 bg-zinc-900 p-2 lg:hidden">
           <div className="min-w-0 flex-1"><Scoreboard v={v} compact /></div>
           <PlayPause v={v} />
         </div>
       )}
       <div className="grid gap-3 lg:grid-cols-[minmax(270px,320px)_1fr_minmax(280px,330px)]">
-        <div className={`min-w-0 lg:order-1 ${mobileSection(section === 'SQUAD')}`}><SquadPanel v={v} /></div>
-        <div className={`min-w-0 space-y-3 lg:order-2 ${mobileSection(section === 'LIVE')}`}>
+        {(desktop || section === 'SQUAD') && <div className={`min-w-0 lg:order-1 ${mobileSection(section === 'SQUAD')}`}><SquadPanel v={v} /></div>}
+        {(desktop || section === 'LIVE') && <div className={`min-w-0 space-y-3 lg:order-2 ${mobileSection(section === 'LIVE')}`}>
           <TopBar v={v} />
           <PauseBanner v={v} />
           <PitchRadar v={v} />
@@ -87,8 +88,8 @@ export function Matchday() {
               Abandon match
             </button>
           </div>
-        </div>
-        <div className={`min-w-0 lg:order-3 ${mobileSection(section === 'TOUCHLINE')}`}><TouchlinePanel v={v} /></div>
+        </div>}
+        {(desktop || section === 'TOUCHLINE') && <div className={`min-w-0 lg:order-3 ${mobileSection(section === 'TOUCHLINE')}`}><TouchlinePanel v={v} /></div>}
       </div>
       <MobileNav value={section} onChange={setSection} items={[
         { value: 'LIVE', label: 'Live', icon: NavIcons.live },
